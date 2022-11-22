@@ -4,8 +4,8 @@ import numpy as np
 import random
 import scipy.spatial.distance
 from sklearn.preprocessing import normalize
-from sklearn.utils.extmath import row_norms
 from sklearn.utils import check_random_state
+from sklearn.utils.extmath import row_norms
 
 from cmvc.Multi_view_CH_kmeans import init_seeded_kmeans_plusplus
 
@@ -31,6 +31,8 @@ class KMeans:
 
         min_inertia = np.inf
         for random_seed in range(self.num_reinit):
+            if self.num_reinit == 1:
+                random_seed = None
             start = time.perf_counter()
             original_start = start
             cluster_centers = self._init_cluster_centers(X, y, random_seed=random_seed)
@@ -143,8 +145,8 @@ class KMeans:
                     remaining_row_idxs.remove(sampled_idx)
             seeds = X[seed_idxs]
             '''
-            x_squared_norms = row_norms(X, squared=True)
             random_state = check_random_state(random_seed)
+            x_squared_norms = row_norms(X, squared=True)
             seeds = init_seeded_kmeans_plusplus(X, None, self.n_clusters, x_squared_norms, random_state)
 
         return seeds
