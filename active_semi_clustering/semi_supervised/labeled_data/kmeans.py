@@ -3,6 +3,7 @@ from active_semi_clustering.exceptions import EmptyClustersException
 import numpy as np
 import random
 import scipy.spatial.distance
+from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.preprocessing import normalize
 from sklearn.utils import check_random_state
 from sklearn.utils.extmath import row_norms
@@ -31,8 +32,6 @@ class KMeans:
 
         min_inertia = np.inf
         for random_seed in range(self.num_reinit):
-            if self.num_reinit == 1:
-                random_seed = None
             start = time.perf_counter()
             original_start = start
             cluster_centers = self._init_cluster_centers(X, y, random_seed=random_seed)
@@ -95,7 +94,9 @@ class KMeans:
         return self
 
     def _init_cluster_centers(self, X, y=None, duplicate_eps = 1e-8, random_seed=0):
+        random_state = np.random.RandomState(random_seed)
         assert self.n_clusters <= len(X)
+        x_squared_norms = row_norms(X, squared=True)
 
         if self.init == "random":
             remaining_row_idxs = list(range(len(X)))
@@ -118,37 +119,52 @@ class KMeans:
                         seeds[i] = sampled_vector
                         break
         else:
-            '''
             # Use k-means++ (https://en.wikipedia.org/wiki/K-means%2B%2B#Improved_initialization_algorithm) to 
             # initialize the cluster centers.
+            n_local_trials = 2 + int(np.log(self.n_clusters))
 
             # This is an expensive >quadratic operation which will be very slow for large datasets.
-            distance_matrix = scipy.spatial.distance.cdist(X, X, metric='euclidean')
-            seed_idxs = []
+            distance_matrix = euclidean_distances(X, X, Y_norm_squared=x_squared_norms, squared=True)
+            seed_set = []
             remaining_row_idxs = list(range(len(X)))
-            for i in range(self.n_clusters):
-                if i == 0:
-                    sampled_idx = np.random.choice(remaining_row_idxs)
-                    seed_idxs.append(sampled_idx)
-                    remaining_row_idxs.remove(sampled_idx)
-                else:
-                    seed_distances = distance_matrix[seed_idxs]
-                    remaining_row_to_seed_distances = seed_distances[:, remaining_row_idxs]
-                    nearest_distances = np.min(remaining_row_to_seed_distances, axis=0)
-                    nearest_distances_squared = np.power(nearest_distances, 2)
-                    nearest_distances_squared_normalized = nearest_distances_squared / sum(nearest_distances_squared)
 
-                    assert len(nearest_distances_squared_normalized.shape) == 1
-                    assert len(remaining_row_idxs) == len(nearest_distances_squared_normalized)
-                    sampled_idx = np.random.choice(remaining_row_idxs, p=nearest_distances_squared_normalized)
-                    seed_idxs.append(sampled_idx)
-                    remaining_row_idxs.remove(sampled_idx)
-            seeds = X[seed_idxs]
+            # Pick initial cluster center.
+            sampled_idx = random_state.choice(remaining_row_idxs)
+            seed_set.append(sampled_idx)
+            closest_dist_sq = distance_matrix[sampled_idx]
+
+            for i in range(1, self.n_clusters):
+                seed_distances = distance_matrix[seed_set]
+                nearest_distances = np.min(seed_distances, axis=0)
+                nearest_distances_normalized = nearest_distances / sum(nearest_distances)
+
+                assert len(nearest_distances_normalized.shape) == 1
+                assert len(remaining_row_idxs) == len(nearest_distances_normalized)
+
+                # Try out the top 'n_local_trials' choices for the next seed, and choose the one with least
+                # average distance to other points in the dataset.
+                candidate_ids = random_state.choice(remaining_row_idxs, p=nearest_distances_normalized, size=n_local_trials)
+
+                # TODO
+                # Need to consider the previous seeds when computing the distances of points to
+                # each candidate.
+
+                distance_to_candidates = euclidean_distances(X[candidate_ids], X, Y_norm_squared=x_squared_norms, squared=True)
+                min_remaining_distance_to_candidates = np.minimum(closest_dist_sq, distance_to_candidates)
+
+                candidate_potentials = min_remaining_distance_to_candidates.sum(axis=1)
+                best_candidate = np.argmin(candidate_potentials)
+                closest_dist_sq = min_remaining_distance_to_candidates[best_candidate]
+                sampled_idx = candidate_ids[best_candidate]
+
+                seed_set.append(sampled_idx)
+
+            seeds = X[seed_set]
             '''
             random_state = check_random_state(random_seed)
             x_squared_norms = row_norms(X, squared=True)
             seeds = init_seeded_kmeans_plusplus(X, None, self.n_clusters, x_squared_norms, random_state)
-
+            '''
         return seeds
 
     def _dist(self, x, y):
