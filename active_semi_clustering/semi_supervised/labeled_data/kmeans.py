@@ -93,7 +93,7 @@ class KMeans:
 
         return self
 
-    def _init_cluster_centers(self, X, y=None, duplicate_eps = 1e-8, random_seed=0):
+    def _init_cluster_centers(self, X, y=None, seed_set = None, duplicate_eps = 1e-8, random_seed=0):
         random_state = np.random.RandomState(random_seed)
         assert self.n_clusters <= len(X)
         x_squared_norms = row_norms(X, squared=True)
@@ -121,50 +121,43 @@ class KMeans:
         else:
             # Use k-means++ (https://en.wikipedia.org/wiki/K-means%2B%2B#Improved_initialization_algorithm) to 
             # initialize the cluster centers.
+
+            # Using the same method as described by Arthur and Vassilvitskii (2007), we choose `n_local_trials`
+            # top candidates for the next cluster center and select the one among these which will most reduce
+            # the sum total distance to the existing set of cluster centers.
             n_local_trials = 2 + int(np.log(self.n_clusters))
 
             # This is an expensive >quadratic operation which will be very slow for large datasets.
-            distance_matrix = euclidean_distances(X, X, Y_norm_squared=x_squared_norms, squared=True)
-            seed_set = []
+            cluster_seeds = []
             remaining_row_idxs = list(range(len(X)))
+            if seed_set is None:
+                # Pick initial cluster center.
+                sampled_idx = random_state.choice(remaining_row_idxs)
+                seed_set = [X[sampled_idx]]
+                cluster_seeds.append(X[sampled_idx])
+            else:
+                cluster_seeds.extend(seed_set)
 
-            # Pick initial cluster center.
-            sampled_idx = random_state.choice(remaining_row_idxs)
-            seed_set.append(sampled_idx)
-            closest_dist_sq = distance_matrix[sampled_idx]
-
+            closest_dist_sq_all = euclidean_distances(seed_set, X, Y_norm_squared=x_squared_norms, squared=True)
+            closest_dist_sq = np.min(closest_dist_sq_all, axis=0)
             for i in range(1, self.n_clusters):
-                seed_distances = distance_matrix[seed_set]
-                nearest_distances = np.min(seed_distances, axis=0)
-                nearest_distances_normalized = nearest_distances / sum(nearest_distances)
-
+                nearest_distances_normalized = closest_dist_sq / sum(closest_dist_sq)
                 assert len(nearest_distances_normalized.shape) == 1
                 assert len(remaining_row_idxs) == len(nearest_distances_normalized)
 
                 # Try out the top 'n_local_trials' choices for the next seed, and choose the one with least
                 # average distance to other points in the dataset.
                 candidate_ids = random_state.choice(remaining_row_idxs, p=nearest_distances_normalized, size=n_local_trials)
-
-                # TODO
-                # Need to consider the previous seeds when computing the distances of points to
-                # each candidate.
-
                 distance_to_candidates = euclidean_distances(X[candidate_ids], X, Y_norm_squared=x_squared_norms, squared=True)
                 min_remaining_distance_to_candidates = np.minimum(closest_dist_sq, distance_to_candidates)
-
                 candidate_potentials = min_remaining_distance_to_candidates.sum(axis=1)
                 best_candidate = np.argmin(candidate_potentials)
+
+                # The `closest_dist_sq` array should contain the distance from each point in
+                # the dataset to its closest seed point.
                 closest_dist_sq = min_remaining_distance_to_candidates[best_candidate]
-                sampled_idx = candidate_ids[best_candidate]
-
-                seed_set.append(sampled_idx)
-
-            seeds = X[seed_set]
-            '''
-            random_state = check_random_state(random_seed)
-            x_squared_norms = row_norms(X, squared=True)
-            seeds = init_seeded_kmeans_plusplus(X, None, self.n_clusters, x_squared_norms, random_state)
-            '''
+                cluster_seeds.append(X[candidate_ids[best_candidate]])
+            seeds = np.vstack(cluster_seeds)
         return seeds
 
     def _dist(self, x, y):
