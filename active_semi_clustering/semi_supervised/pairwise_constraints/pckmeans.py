@@ -2,13 +2,14 @@ import numpy as np
 
 from active_semi_clustering.exceptions import EmptyClustersException
 from .constraints import preprocess_constraints
+from active_semi_clustering.semi_supervised.labeled_data.kmeans import KMeans
 
-
-class PCKMeans:
-    def __init__(self, n_clusters=3, max_iter=100, w=1):
+class PCKMeans(KMeans):
+    def __init__(self, n_clusters=3, max_iter=100, w=1, init="random"):
         self.n_clusters = n_clusters
         self.max_iter = max_iter
         self.w = w
+        self.init = init
 
     def fit(self, X, y=None, ml=[], cl=[]):
         # Preprocess constraints
@@ -52,9 +53,14 @@ class PCKMeans:
             # FIXME look for a point that is connected by cannot-links to every neighborhood set
 
             if len(neighborhoods) < self.n_clusters:
-                remaining_cluster_centers = X[np.random.choice(X.shape[0], self.n_clusters - len(neighborhoods), replace=False), :]
-                cluster_centers = np.concatenate([cluster_centers, remaining_cluster_centers])
-
+                if self.init == "k-means++":
+                    if len(list(cluster_centers)) > 0:
+                        cluster_centers = super()._init_cluster_centers(X, seed_set=list(cluster_centers))
+                    else:
+                        cluster_centers = super()._init_cluster_centers(X)
+                else:
+                    remaining_cluster_centers = X[np.random.choice(X.shape[0], self.n_clusters - len(neighborhoods), replace=False), :]
+                    cluster_centers = np.concatenate([cluster_centers, remaining_cluster_centers])
         return cluster_centers
 
     def _objective_function(self, X, x_i, centroids, c_i, labels, ml_graph, cl_graph, w):

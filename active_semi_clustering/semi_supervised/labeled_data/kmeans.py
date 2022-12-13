@@ -140,7 +140,7 @@ class KMeans:
 
             closest_dist_sq_all = euclidean_distances(seed_set, X, Y_norm_squared=x_squared_norms, squared=True)
             closest_dist_sq = np.min(closest_dist_sq_all, axis=0)
-            for i in range(1, self.n_clusters):
+            for i in range(len(cluster_seeds), self.n_clusters):
                 nearest_distances_normalized = closest_dist_sq / sum(closest_dist_sq)
                 assert len(nearest_distances_normalized.shape) == 1
                 assert len(remaining_row_idxs) == len(nearest_distances_normalized)

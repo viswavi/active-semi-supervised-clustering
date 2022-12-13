@@ -15,11 +15,14 @@ class SeededKMeans(KMeans):
         random_state = check_random_state(random_seed)
         x_squared_norms = row_norms(X, squared=True)
 
-        seed_set = [i for i, y_value in enumerate(y) if y_value != -1]
+        seed_labels = set([y_value for y_value in y if y_value != -1])
+        seeded_feature_clusters = [[X[i] for i, y_value in enumerate(y) if y_value == label] for label in seed_labels]
+        seed_set = np.vstack([np.mean(np.vstack(cluster), axis=0) for cluster in seeded_feature_clusters])
+
         if self.init == "k-means++":
-            seeds = init_seeded_kmeans_plusplus(X, seed_set, self.n_clusters, x_squared_norms, random_state)
+            seeds = super()._init_cluster_centers(X, seed_set=seed_set)
         else:
-            remaining_seeds_available = list(set(range(len(X))) - set(seed_set))
+            remaining_seeds_available = list(range(len(X)))
             remaining_seeds_chosen = np.random.choice(remaining_seeds_available, size=self.n_clusters - len(seed_set), replace=False)
-            seeds = X[np.concatenate([seed_set, remaining_seeds_chosen])]
+            seeds = np.vstack([seed_set, X[remaining_seeds_chosen]])
         return seeds
