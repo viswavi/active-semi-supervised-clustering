@@ -40,6 +40,7 @@ class KMeans:
                 print(f"{self.init} k-means initialization took {round(elapsed, 4)} seconds.")
 
             # Repeat until convergence
+            cluster_centers_shift = np.zeros(cluster_centers.shape)
 
             for iteration in range(self.max_iter):
                 timer_dict = {}
@@ -55,16 +56,17 @@ class KMeans:
                     timer = time.perf_counter()
 
                 prev_cluster_centers = cluster_centers.copy()
+                prev_cluster_centers_shift = cluster_centers_shift.copy()
                 timer_dict["Copy Centroids"] = round(time.perf_counter() - timer, 3)
                 timer = time.perf_counter()
 
                 # Assign clusters
-                labels = self._assign_clusters(X, y, cluster_centers, self._dist)
+                labels = self._assign_clusters(X, y, cluster_centers, self._dist).copy()
                 timer_dict["Assign clusters"] = round(time.perf_counter() - timer, 3)
                 timer = time.perf_counter()
 
                 # Estimate means
-                cluster_centers = self._get_cluster_centers(X, labels)
+                cluster_centers = self._get_cluster_centers(X, labels).copy()
                 timer_dict["Estimate cluster centers"] = round(time.perf_counter() - timer, 3)
                 timer = time.perf_counter()
 
