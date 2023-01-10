@@ -41,7 +41,10 @@ class MinMax(ExploreConsolidate):
                         break
 
                 skeleton.add(q_i)
-                remaining.remove(q_i)
+                if len(remaining) == 0:
+                    return neighborhoods
+                else:
+                    remaining.remove(q_i)
 
             except MaximumQueriesExceeded:
                 break

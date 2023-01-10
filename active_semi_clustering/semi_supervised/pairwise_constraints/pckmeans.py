@@ -80,11 +80,14 @@ class PCKMeans(KMeans):
 
     def _assign_clusters(self, X, cluster_centers, ml_graph, cl_graph, w):
         labels = np.full(X.shape[0], fill_value=-1)
+        min_cluster_distances = {}
 
         index = list(range(X.shape[0]))
         np.random.shuffle(index)
         for x_i in index:
-            labels[x_i] = np.argmin([self._objective_function(X, x_i, cluster_centers, c_i, labels, ml_graph, cl_graph, w) for c_i in range(self.n_clusters)])
+            cluster_distances = [self._objective_function(X, x_i, cluster_centers, c_i, labels, ml_graph, cl_graph, w) for c_i in range(self.n_clusters)]
+            min_cluster_distances.append(min(cluster_distances))
+            labels[x_i] = np.argmin(cluster_distances)
 
         # Handle empty clusters
         # See https://github.com/scikit-learn/scikit-learn/blob/0.19.1/sklearn/cluster/_k_means.pyx#L309
@@ -92,8 +95,9 @@ class PCKMeans(KMeans):
         empty_clusters = np.where(n_samples_in_cluster == 0)[0]
 
         if len(empty_clusters) > 0:
-            # print("Empty clusters")
-            raise EmptyClustersException
+            print(f"Empty clusters: {empty_clusters}")
+            points_by_min_cluster_distance = np.argsort(-np.array(min_cluster_distances))
+            breakpoint()
 
         return labels
 
