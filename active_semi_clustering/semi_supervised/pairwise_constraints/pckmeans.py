@@ -15,11 +15,14 @@ class PCKMeans(KMeans):
         # Preprocess constraints
         ml_graph, cl_graph, neighborhoods = preprocess_constraints(ml, cl, X.shape[0])
 
+        print(f"Num neighborhoods: {neighborhoods}")
+
         # Initialize centroids
         cluster_centers = self._initialize_cluster_centers(X, neighborhoods)
 
         # Repeat until convergence
         for iteration in range(self.max_iter):
+            print(f"iteration: {iteration}")
             # Assign clusters
             labels = self._assign_clusters(X, cluster_centers, ml_graph, cl_graph, self.w)
 
@@ -80,7 +83,7 @@ class PCKMeans(KMeans):
 
     def _assign_clusters(self, X, cluster_centers, ml_graph, cl_graph, w):
         labels = np.full(X.shape[0], fill_value=-1)
-        min_cluster_distances = {}
+        min_cluster_distances = []
 
         index = list(range(X.shape[0]))
         np.random.shuffle(index)
@@ -95,10 +98,20 @@ class PCKMeans(KMeans):
         empty_clusters = np.where(n_samples_in_cluster == 0)[0]
 
         if len(empty_clusters) > 0:
+            original_labels = labels.copy()
             print(f"Empty clusters: {empty_clusters}")
             points_by_min_cluster_distance = np.argsort(-np.array(min_cluster_distances))
-            breakpoint()
+            i = 0
+            for cluster_idx in list(empty_clusters):
+                while n_samples_in_cluster[labels[points_by_min_cluster_distance[i]]] == 1:
+                    i += 1
+                labels[points_by_min_cluster_distance[i]] = cluster_idx
+                i += 1
 
+            n_samples_in_cluster = np.bincount(labels, minlength=self.n_clusters)
+            empty_clusters = np.where(n_samples_in_cluster == 0)[0]
+            if len(empty_clusters) > 0:
+                breakpoint()
         return labels
 
     def _get_cluster_centers(self, X, labels):

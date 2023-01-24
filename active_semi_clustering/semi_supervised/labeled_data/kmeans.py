@@ -43,6 +43,7 @@ class KMeans:
             cluster_centers_shift = np.zeros(cluster_centers.shape)
 
             for iteration in range(self.max_iter):
+                print(f"iteration {iteration}")
                 timer_dict = {}
                 timer = time.perf_counter()
                 if self.normalize_vectors:

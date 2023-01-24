@@ -37,13 +37,22 @@ class LabelBasedSelector:
             idxs_to_clusters[idx] = l
         remaining_dataset_indices = dataset_indices
 
+        num_continues = 0
 
         while len(ml) + len(cl) < oracle.max_queries_cnt:
-            sample_idx = np.random.choice(dataset_indices)
+            sample_idx = np.random.choice(remaining_dataset_indices)
             cluster_label = idxs_to_clusters[sample_idx]
-            clusters_to_idxs[cluster_label].remove(sample_idx)
-            if len(clusters_to_idxs[cluster_label]) == 0:
+            if len(clusters_to_idxs[cluster_label]) <= 1:
+                num_continues += 1
                 continue
+            if sample_idx not in clusters_to_idxs[cluster_label]:
+                num_continues += 1
+                continue
+
+            if num_continues == 1000:
+                break
+
+            clusters_to_idxs[cluster_label].remove(sample_idx)
 
             remaining_dataset_indices.remove(sample_idx)
 
