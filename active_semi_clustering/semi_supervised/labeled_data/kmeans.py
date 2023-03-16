@@ -43,7 +43,7 @@ class KMeans:
             cluster_centers_shift = np.zeros(cluster_centers.shape)
 
             for iteration in range(self.max_iter):
-                print(f"iteration {iteration}")
+                # print(f"iteration {iteration}")
                 timer_dict = {}
                 timer = time.perf_counter()
                 if self.normalize_vectors:
@@ -76,11 +76,9 @@ class KMeans:
                 converged = np.allclose(cluster_centers_shift, np.zeros(cluster_centers.shape), atol=1e-6, rtol=0)
                 timer_dict["Check convergence"] = round(time.perf_counter() - timer, 3)
                 timer = time.perf_counter()
-                print(f"K-Means iteration {iteration} took {round(time.perf_counter() - original_start, 3)} seconds.")
-                print(f"cluster_centers_shift: {cluster_centers_shift}")
-                print(f"cluster_centers: {cluster_centers}")
+                # print(f"K-Means iteration {iteration} took {round(time.perf_counter() - original_start, 3)} seconds.")
 
-                print(f"Timer dict: {timer_dict}")
+                # print(f"Timer dict: {timer_dict}")
 
                 if converged: break
 

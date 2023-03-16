@@ -1,3 +1,4 @@
+import json
 import numpy as np
 
 from active_semi_clustering.exceptions import EmptyClustersException
@@ -15,14 +16,18 @@ class PCKMeans(KMeans):
         # Preprocess constraints
         ml_graph, cl_graph, neighborhoods = preprocess_constraints(ml, cl, X.shape[0])
 
-        print(f"Num neighborhoods: {neighborhoods}")
+        print(f"ML constraints:\n{ml}\n")
+        print(f"CL constraints:\n{cl}\n")
+
+        print(f"Num neighborhoods: {neighborhoods}\n\n\n")
 
         # Initialize centroids
+        # cluster_centers = self._init_cluster_centers(X)
         cluster_centers = self._initialize_cluster_centers(X, neighborhoods)
 
         # Repeat until convergence
         for iteration in range(self.max_iter):
-            print(f"iteration: {iteration}")
+            print(f"\n\n\n\niteration: {iteration}")
             # Assign clusters
             labels = self._assign_clusters(X, cluster_centers, ml_graph, cl_graph, self.w)
 
@@ -66,7 +71,7 @@ class PCKMeans(KMeans):
                     cluster_centers = np.concatenate([cluster_centers, remaining_cluster_centers])
         return cluster_centers
 
-    def _objective_function(self, X, x_i, centroids, c_i, labels, ml_graph, cl_graph, w):
+    def _objective_function(self, X, x_i, centroids, c_i, labels, ml_graph, cl_graph, w, print_terms=False):
         distance = 1 / 2 * np.sum((X[x_i] - centroids[c_i]) ** 2)
 
         ml_penalty = 0
@@ -78,6 +83,9 @@ class PCKMeans(KMeans):
         for y_i in cl_graph[x_i]:
             if labels[y_i] == c_i:
                 cl_penalty += w
+        if print_terms:
+            metric_dict = {"x_i": x_i, "distance": round(distance, 4), "ml_penalty": round(ml_penalty, 4), "cl_penalty": round(ml_penalty, 4)}
+            print(json.dumps(metric_dict))
 
         return distance + ml_penalty + cl_penalty
 
@@ -91,6 +99,9 @@ class PCKMeans(KMeans):
             cluster_distances = [self._objective_function(X, x_i, cluster_centers, c_i, labels, ml_graph, cl_graph, w) for c_i in range(self.n_clusters)]
             min_cluster_distances.append(min(cluster_distances))
             labels[x_i] = np.argmin(cluster_distances)
+
+            _ = self._objective_function(X, x_i, cluster_centers, labels[x_i], labels, ml_graph, cl_graph, w, print_terms=True)
+
 
         # Handle empty clusters
         # See https://github.com/scikit-learn/scikit-learn/blob/0.19.1/sklearn/cluster/_k_means.pyx#L309

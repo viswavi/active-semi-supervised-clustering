@@ -41,14 +41,14 @@ class DEC(KMeans):
                  device="cuda:2",
                  include_contrastive_loss=False,
                  labels=None,
-                 batch_size = 32,
+                 batch_size = 400,
                  linear_transformation = False,
                  canonicalization_side_information=None):
         self.n_clusters = n_clusters
         self.max_iter = max_iter
         self.normalize_vectors = normalize_vectors
         self.split_normalization = split_normalization
-        self.verbose = verbose
+        self.verbose = verbose 
         self.batch_size = batch_size
         self.num_dataloader_workers = 4
         self.init = cluster_init
@@ -61,7 +61,22 @@ class DEC(KMeans):
 
     def fit(self, X):
 
-        cluster_centers = self._init_cluster_centers(X)
+        if self.init == "k-means":
+            clusterer = KMeans(n_clusters=self.n_clusters, normalize_vectors=self.normalize_vectors, split_normalization=self.split_normalization, init="k-means++", num_reinit=1, verbose=False)
+            clusterer.fit(X)
+            labels = clusterer.labels_
+            clusters_list = {}
+            for l, feat in zip(labels, X):
+                if l not in clusters_list:
+                    clusters_list[l] = []
+                clusters_list[l].append(feat)
+            
+            cluster_centers = np.empty((self.n_clusters, X.shape[1]))
+            for i, l in enumerate(clusters_list.keys()):
+                avg_vec = np.mean(clusters_list[l], axis=0)
+                cluster_centers[i] = avg_vec
+        else:
+            cluster_centers = self._init_cluster_centers(X)
 
         torch.cuda.set_device(self.device)
 
@@ -70,14 +85,14 @@ class DEC(KMeans):
         model = SCCLMatrix(emb_size=X.shape[1], cluster_centers=cluster_centers, include_contrastive_loss=self.include_contrastive_loss, linear_transformation = self.linear_transformation) 
         model = model.cuda()
 
-        resDir = "/projects/ogma1/vijayv/okb-canonicalization/clustering/sccl/opiec_59k_batch_size_32_knn_init_no_linear_adam_larger_lr_fixed/"
+        resDir = "/projects/ogma1/vijayv/okb-canonicalization/clustering/sccl/opiec_59k_batch_size_400_kpp_init_no_linear_momentum/"
         resPath = "SCCL.tensorboard"
         resPath = resDir + resPath
         tensorboard = SummaryWriter(resPath)
 
         # optimize  
         Args = namedtuple("Args", "lr lr_scale eta temperature objective print_freq max_iter batch_size tensorboard")
-        args = Args(1e-05, 1000, 10, 0.5, "SCCL", 300, 200 * X.shape[0] / self.batch_size, self.batch_size, tensorboard)
+        args = Args(1e-01, 100, 10, 0.5, "SCCL", 300, 2500 * X.shape[0] / self.batch_size, self.batch_size, tensorboard)
 
 
         optimizer = get_optimizer_linear_transformation(model, args, include_contrastive_loss=self.include_contrastive_loss, linear_transformation=self.linear_transformation)
