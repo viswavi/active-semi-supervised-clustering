@@ -29,7 +29,7 @@ class KMeans:
 
         X_mean = X.mean(axis=0)
         X -= X_mean
-
+    
         min_inertia = np.inf
         for random_seed in range(self.num_reinit):
             start = time.perf_counter()

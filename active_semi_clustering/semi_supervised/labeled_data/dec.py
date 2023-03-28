@@ -38,12 +38,14 @@ class DEC(KMeans):
                  split_normalization=False,
                  verbose=False,
                  cluster_init="random",
-                 device="cuda:2",
+                 device="cuda:0",
                  include_contrastive_loss=False,
                  labels=None,
                  batch_size = 400,
                  linear_transformation = False,
-                 canonicalization_side_information=None):
+                 canonicalization_side_information=None,
+                 tensorboard_parent_dir="/projects/ogma1/vijayv/okb-canonicalization/clustering/sccl/",
+                 tensorboard_dir="tmp"):
         self.n_clusters = n_clusters
         self.max_iter = max_iter
         self.normalize_vectors = normalize_vectors
@@ -58,6 +60,8 @@ class DEC(KMeans):
         self.labels = labels
         self.linear_transformation = linear_transformation
         self.canonicalization_side_information = canonicalization_side_information
+        self.tensorboard_parent_dir = tensorboard_parent_dir
+        self.tensorboard_dir = tensorboard_dir
 
     def fit(self, X):
 
@@ -85,7 +89,8 @@ class DEC(KMeans):
         model = SCCLMatrix(emb_size=X.shape[1], cluster_centers=cluster_centers, include_contrastive_loss=self.include_contrastive_loss, linear_transformation = self.linear_transformation) 
         model = model.cuda()
 
-        resDir = "/projects/ogma1/vijayv/okb-canonicalization/clustering/sccl/opiec_59k_batch_size_400_kpp_init_no_linear_momentum/"
+        # tensorboard_dir could be "opiec_59k_sccl_with_unsupervised_cl_no_linear_transformation/"
+        resDir = os.path.join(self.tensorboard_parent_dir, self.tensorboard_dir)
         resPath = "SCCL.tensorboard"
         resPath = resDir + resPath
         tensorboard = SummaryWriter(resPath)
