@@ -1,6 +1,6 @@
 from .copkmeans import COPKMeans
 from .pckmeans import PCKMeans
-from .gptclustering import GPTExpansionClustering
+from .gptclustering import GPTExpansionClustering, GPTPairwiseClustering
 from .mpckmeans import MPCKMeans
 from .mpckmeansmf import MPCKMeansMF
 from .mkmeans import MKMeans

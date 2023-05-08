@@ -10,6 +10,7 @@ from tqdm import tqdm
 from active_semi_clustering.exceptions import EmptyClustersException
 from .constraints import preprocess_constraints
 from active_semi_clustering.semi_supervised.labeled_data.kmeans import KMeans
+from active_semi_clustering.semi_supervised.pairwise_constraints.pckmeans import PCKMeans
 
 class GPTExpansionClustering(KMeans):
     def __init__(self, n_clusters=3, side_information=None, read_only=True):
@@ -174,8 +175,24 @@ Alternate Entity Names: """
             for ent in cluster:
                 ent_to_cluster_idx[ent] = clust_idx
         self.labels_ = [ent_to_cluster_idx[side_info.id2ent[idx]] for idx in range(len(X))]
-
-
-        breakpoint()
-
         return self
+
+
+class GPTPairwiseClustering(PCKMeans):
+    def __init__(self, n_clusters=3, side_information=None, read_only=True):
+        self.n_clusters = n_clusters
+        self.side_information = side_information
+        self.cache_dir = "/projects/ogma1/vijayv/okb-canonicalization/clustering/file/gpt3_cache"
+        self.cache_file = os.path.join(self.cache_dir, "gpt_paraphrase_cache.jsonl")
+        if os.path.exists(self.cache_file):
+            self.cache_rows = list(jsonlines.open(self.cache_file))
+        else:
+            self.cache_rows = []
+        if not read_only:
+            self.cache_writer = jsonlines.open(self.cache_file, mode='a')
+        else:
+            self.cache_writer = jsonlines.open(self.cache_file, mode='r')
+        self.NUM_RETRIES = 1
+        self.read_only = read_only
+
+        self.sentence_unprocessing_mapping_file = os.path.join(self.cache_dir, "sentence_unprocessing_map.json")
