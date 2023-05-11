@@ -21,9 +21,9 @@ class GPT3Oracle:
         else:
             self.cache_rows = []
         if not read_only:
-            self.cache_writer = jsonlines.open(self.cache_file, mode='a')
+            self.cache_writer = jsonlines.open(self.cache_file, mode='a', flush=True)
         else:
-            self.cache_writer = jsonlines.open(self.cache_file, mode='r')
+            self.cache_writer = jsonlines.open(self.cache_file, mode='r', flush=True)
         self.NUM_RETRIES = 2
         self.read_only = read_only
 
@@ -37,7 +37,7 @@ class GPT3Oracle:
             ents.append(side_info.id2ent[i])
             entity_sentence_idxs = side_info.ent_id2sentence_list[i]
             unprocessed_sentences = [sentence_unprocessing_mapping[side_info.sentence_List[j]] for j in entity_sentence_idxs]
-            entity_sentences = self.process_sentence_punctuation(unprocessed_sentences)
+            entity_sentences = process_sentence_punctuation(unprocessed_sentences)
 
             '''
             Choose longest sentence under 306 characers, as in
@@ -53,7 +53,8 @@ class GPT3Oracle:
 
         self.gpt3_pairwise_labels = {}
         for row in self.cache_rows:
-            self.gpt3_pairwise_labels[(row["entity1"], row["entity2"])] = row["label"]
+            sorted_pair_list = sorted([row["entity1"], row["entity2"]])
+            self.gpt3_pairwise_labels[tuple(sorted_pair_list)] = row["label"]
 
     def process_sentence_punctuation(self, sentences):
         processed_sentence_set = []
@@ -61,12 +62,43 @@ class GPT3Oracle:
             processed_sentence_set.append(s.replace("-LRB-", "(").replace("-RRB-", ")"))
         return processed_sentence_set
 
+
     def construct_pairwise_oracle_prompt(self, i, j):
-        breakpoint()
+        prefix = """I am trying to cluster entity strings on Wikipedia according to the Wikipedia article title they refer to. To help me with this, for a given entity name, please make your best guess as to whether these two objects refer to the same person, location, organization, or object. Entities may be weirdly truncated or ambiguous - e.g. "Wind" may refer to the band "Earth, Wind, and Fire" or to "rescue service". For each entity, I will also provide you with an example sentence from Wikipedia where this entity is referred to. This is just one example where this entity appears and may not be the most representative sentence. Here are a few examples:
+
+1) B.A
+Context Sentence: "He matriculated at Jesus College , Oxford on 26 April 1616 , aged 16 , then transferred to Christ 's College , Cambridge ( B.A 1620 , M.A. 1623 , D.D. 1640 ) ."
+2) M.D.
+Context Sentence: "One study , published in `` The Journal of the American Osteopathic Association Frontier physician Andrew Taylor Still , M.D. , DO , founded the American School of Osteopathy ( now the A.T. Still University-Kirksville ( Mo. ) College of Osteopathic Medicine ) in Kirksville , MO , in 1892 as a radical protest against the turn-of-the-century medical system ."
+Given this context, would B.A and M.D. link to the same entity's article on Wikipedia? No
+
+1) B.A
+Context Sentence: "He matriculated at Jesus College , Oxford on 26 April 1616 , aged 16 , then transferred to Christ 's College , Cambridge ( B.A 1620 , M.A. 1623 , D.D. 1640 ) ."
+2) bachelor
+Context Sentence: "After earning a bachelor 's degree from Stanford University and a master 's degree from the Stanford Graduate School of Education , Long was hired as a track coach at Los Altos High School in 1956 , coaching at the school from 1956 -- 1963 and again from 1969 -- 1981 ."
+Given this context, would B.A and bachelor link to the same entity's article on Wikipedia? Yes
+
+1) British Government; context sentence: "On 8 September 1939 ,  advised The Football Association ( FA)  clubs could stage friendly matches outside evacuation areas  Liverpool  able  take part   matches , constrained  unavailability  players   services , throughout  war ."
+2) government; context sentence: "The amalgamation   two regiments  one   title The Connaught Rangers ,  part   United Kingdom 's reorganization   British Army   Childers Reforms ,  continuation   Cardwell Reforms It  one  eight Irish regiments raised largely  Ireland ,   home depot  Renmore Barracks  Galway ."
+Given this context, would British Government and government link to the same entity's article on Wikipedia? Yes
+
+1) Duke of York
+Context Sentence: "In supporting John Christian Curwen 's bill for the prevention of the sale of seats , he suggested that the Duke of York and Albany , the late Commander-in-Chief of the Forces , had to some extent corrupted members of parliament ; and in speaking on the budget resolutions of 1808 he declared his belief that the influence of the prerogative had increased ."
+2) Frederick
+Context Sentence: "These realities could not but influence the nature and direction of Krasicki 's subsequent literary productions , perhaps nowhere more so than in the `` Fables and Parables Soon after the First Partition , Krasicki officiated at the 1773 opening of Berlin 's St. Hedwig 's Cathedral , which Frederick had built for Catholic immigrants to Brandenburg and Berlin ."
+Given this context, would Duke of York and Frederick link to the same entity's article on Wikipedia? No"""
+
+        filled_template = f"""1) {self.ents[i]}\nContext Sentence: "{self.selected_sentences[i][0]}"\n2) {self.ents[j]}\nContext Sentence: "{self.selected_sentences[j][0]}"\nGiven this context, would {self.ents[i]} and {self.ents[j]} link to the same entity's article on Wikipedia? """
+
+        return prefix + "\n\n" + filled_template
 
     def query(self, i, j):
         if self.queries_cnt < self.max_queries_cnt:
             self.queries_cnt += 1
+            sorted_pair_list = sorted([self.ents[i], self.ents[j]])
+            sorted_pair = tuple(sorted_pair_list)
+            if  sorted_pair in self.gpt3_pairwise_labels:
+                return self.gpt3_pairwise_labels[sorted_pair]
 
             prompt = self.construct_pairwise_oracle_prompt(i, j)
 
@@ -84,13 +116,20 @@ class GPT3Oracle:
                             {"role": "user", "content": prompt},
                         ],
                     )
+
                     message = json.loads(str(response.choices[0]))["message"]["content"]
                     try:
-                        pair_label = int(message.strip() == "False")
+                        if message.strip() == "Yes":
+                            pair_label = True
+                        elif message.strip() == "No":
+                            pair_label = False
+                        else:
+                            pair_label = None
                         cache_row = {"entity1": self.ents[i],
-                                     "entity1": self.ents[j],
+                                     "entity2": self.ents[j],
                                      "label": pair_label}
                         self.cache_writer.write(cache_row)
+                        self.gpt3_pairwise_labels[sorted_pair] = pair_label
                         failure = False
                     except:
                         time.sleep(0.8)
@@ -101,9 +140,6 @@ class GPT3Oracle:
                 except:
                     time.sleep(3)
 
-            if pair_label is None:
-                return False
-            else:
-                pair_label
+            return pair_label
         else:
             raise MaximumQueriesExceeded

@@ -38,8 +38,10 @@ class LabelBasedSelector:
         remaining_dataset_indices = dataset_indices
 
         num_continues = 0
+        np.random.seed(seed=2023)
 
-        while len(ml) + len(cl) < oracle.max_queries_cnt:
+        query_counter = 0
+        while query_counter < oracle.max_queries_cnt:
             sample_idx = np.random.choice(remaining_dataset_indices)
             cluster_label = idxs_to_clusters[sample_idx]
             if len(clusters_to_idxs[cluster_label]) <= 1:
@@ -65,8 +67,19 @@ class LabelBasedSelector:
             furthest_in_cluster_point_idx = self.choose_furthest_point(X, sample_idx, in_cluster_idxs)
             closest_out_of_cluster_point_idx = self.choose_closest_point(X, sample_idx, out_of_cluster_idxs)
 
-            cl.append([sample_idx, closest_out_of_cluster_point_idx])
-            ml.append([sample_idx, furthest_in_cluster_point_idx])
+            pair_label_b = oracle.query(sample_idx, furthest_in_cluster_point_idx)
+            pair_label_a = oracle.query(sample_idx, closest_out_of_cluster_point_idx)
+            query_counter += 2
+
+            if pair_label_a == True:
+                ml.append([sample_idx, closest_out_of_cluster_point_idx])
+            elif pair_label_a == False:
+                cl.append([sample_idx, closest_out_of_cluster_point_idx])
+
+            if pair_label_b == True:
+                ml.append([sample_idx, furthest_in_cluster_point_idx])
+            elif pair_label_b == False:
+                cl.append([sample_idx, furthest_in_cluster_point_idx])
 
         self.pairwise_constraints_ = (ml, cl)
 

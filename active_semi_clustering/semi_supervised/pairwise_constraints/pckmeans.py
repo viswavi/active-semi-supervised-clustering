@@ -1,5 +1,6 @@
 import json
 import numpy as np
+import time
 
 from active_semi_clustering.exceptions import EmptyClustersException
 from .constraints import preprocess_constraints
@@ -19,15 +20,19 @@ class PCKMeans(KMeans):
         print(f"ML constraints:\n{ml}\n")
         print(f"CL constraints:\n{cl}\n")
 
-        print(f"Num neighborhoods: {neighborhoods}\n\n\n")
+        print(f"Num neighborhoods: {sorted([len(n) for n in neighborhoods])}\n\n\n")
 
         # Initialize centroids
         # cluster_centers = self._init_cluster_centers(X)
+        start = time.perf_counter()
         cluster_centers = self._initialize_cluster_centers(X, neighborhoods)
+        elapsed = time.perf_counter() - start
+        print(f"Initializing neighborhoods took {round(elapsed, 4)} seconds")
 
         # Repeat until convergence
         for iteration in range(self.max_iter):
             print(f"\n\n\n\niteration: {iteration}")
+            start = time.perf_counter()
             # Assign clusters
             labels = self._assign_clusters(X, cluster_centers, ml_graph, cl_graph, self.w)
 
@@ -38,6 +43,8 @@ class PCKMeans(KMeans):
             # Check for convergence
             difference = (prev_cluster_centers - cluster_centers)
             converged = np.allclose(difference, np.zeros(cluster_centers.shape), atol=1e-6, rtol=0)
+            elapsed = time.perf_counter() - start
+            print(f"elapsed time: {round(elapsed, 3)}")
 
             if converged: break
 
@@ -85,7 +92,7 @@ class PCKMeans(KMeans):
                 cl_penalty += w
         if print_terms:
             metric_dict = {"x_i": x_i, "distance": round(distance, 4), "ml_penalty": round(ml_penalty, 4), "cl_penalty": round(ml_penalty, 4)}
-            print(json.dumps(metric_dict))
+            # print(json.dumps(metric_dict))
 
         return distance + ml_penalty + cl_penalty
 

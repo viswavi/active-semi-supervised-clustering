@@ -41,20 +41,23 @@ def preprocess_constraints(ml, cl, n):
             dfs(i, ml_graph, visited, component)
             for x1 in component:
                 for x2 in component:
-                    if x1 != x2:
+                    if x1 != x2 and (x1 not in cl_graph[x2] and x2 not in cl_graph[x1]):
                         ml_graph[x1].add(x2)
             neighborhoods.append(component)
 
     for (i, j) in cl:
         for x in ml_graph[i]:
-            add_both(cl_graph, x, j)
+            if x not in ml_graph[j] and j not in ml_graph[x]:
+                add_both(cl_graph, x, j)
 
         for y in ml_graph[j]:
-            add_both(cl_graph, i, y)
+            if y not in ml_graph[i] and i not in ml_graph[y]:
+                add_both(cl_graph, i, y)
 
         for x in ml_graph[i]:
             for y in ml_graph[j]:
-                add_both(cl_graph, x, y)
+                if x not in ml_graph[y] and y not in ml_graph[x]:
+                    add_both(cl_graph, x, y)
 
     for i in ml_graph:
         for j in ml_graph[i]:
