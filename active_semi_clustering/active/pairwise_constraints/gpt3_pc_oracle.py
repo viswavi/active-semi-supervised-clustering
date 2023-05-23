@@ -9,7 +9,7 @@ import openai
 from .example_oracle import MaximumQueriesExceeded
 
 class GPT3Oracle:
-    def __init__(self, X, labels, max_queries_cnt=2000, num_predictions=50, side_information=None, read_only=False):
+    def __init__(self, X, labels, max_queries_cnt=2500, num_predictions=10, side_information=None, read_only=False):
         self.labels = labels
         self.queries_cnt = 0
         self.max_queries_cnt = max_queries_cnt
@@ -17,7 +17,7 @@ class GPT3Oracle:
 
         self.side_information = side_information
         self.cache_dir = "/projects/ogma1/vijayv/okb-canonicalization/clustering/file/gpt3_cache"
-        self.cache_file = os.path.join(self.cache_dir, "pairwise_constraint_cache_multi_predictions.jsonl")
+        self.cache_file = os.path.join(self.cache_dir, "pairwise_constraint_cache_multi_context_multi_predictions.jsonl")
         if os.path.exists(self.cache_file):
             self.cache_rows = list(jsonlines.open(self.cache_file))
         else:
@@ -40,15 +40,14 @@ class GPT3Oracle:
             entity_sentence_idxs = side_info.ent_id2sentence_list[i]
             unprocessed_sentences = [sentence_unprocessing_mapping[side_info.sentence_List[j]] for j in entity_sentence_idxs]
             entity_sentences = self.process_sentence_punctuation(unprocessed_sentences)
+            entity_sentences_dedup = list(set(entity_sentences))
 
             '''
             Choose longest sentence under 306 characers, as in
             https://github.com/Yang233666/cmvc/blob/6e752b1aa5db7ff99eb2fa73476e392a00b0b89a/Context_view.py#L98
             '''
-            longest_sentences = sorted([s for s in entity_sentences if len(s) < 599], key=len, reverse=True)
-            if len(longest_sentences) == 0:
-                breakpoint()
-            selected_sentences.append([longest_sentences[0]])
+            longest_sentences = sorted([s for s in entity_sentences_dedup if len(s) < 599], key=len)
+            selected_sentences.append(longest_sentences[:3])
 
         self.ents = ents
         self.selected_sentences = selected_sentences
@@ -66,11 +65,14 @@ class GPT3Oracle:
 
 
     def construct_single_example(self, i, j, add_label=True):
+        context_labels = ["a", "b", "c", "d"]
+        context_1 = "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(self.selected_sentences[i])])
+        context_2 = "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(self.selected_sentences[j])])
         template_prefix = f"""1) {self.ents[i]}
-Context Sentence: "{self.selected_sentences[i][0]}"
-2) {self.ents[j]}
-Context Sentence: "{self.selected_sentences[j][0]}"
-Given this context, would {self.ents[i]} and {self.ents[j]} link to the same entity's article on Wikipedia? """
+    Context Sentences:\n{context_1}
+    2) {self.ents[j]}
+    Context Sentence:\n{context_2}
+    Given this context, would {self.ents[i]} and {self.ents[j]} link to the same entity's article on Wikipedia? """
         if add_label:
             if self.labels[i] == self.labels[j]:
                 label = "Yes"
@@ -79,17 +81,18 @@ Given this context, would {self.ents[i]} and {self.ents[j]} link to the same ent
             full_example = template_prefix + label
             return full_example
         else:
-            return template_prefix
+            return template_prefix, context_1, context_2
 
     def construct_pairwise_oracle_prompt(self, i, j):
         side_info = self.side_information.side_info
+        instruction = """I am trying to cluster entity strings on Wikipedia according to the Wikipedia article title they refer to. To help me with this, for a given entity name, please make your best guess as to whether these two objects refer to the same person, location, organization, or object. Entities may be weirdly truncated or ambiguous - e.g. "Wind" may refer to the band "Earth, Wind, and Fire" or to "rescue service". For each entity, I will also provide you with up to 4 sentences from Wikipedia where this entity is referred to. These are just 4 examples where this entity appears and may not be the most representative sentences. Here are a few examples:"""
         example_1 = self.construct_single_example(side_info.ent2id["B.A"], side_info.ent2id["M.D."])
         example_2 = self.construct_single_example(side_info.ent2id["B.A"], side_info.ent2id["bachelor"])
         example_3 = self.construct_single_example(side_info.ent2id["British Government"], side_info.ent2id["government"])
         example_4 = self.construct_single_example(side_info.ent2id["Duke of York"], side_info.ent2id["Frederick"])
         prefix = "\n\n".join([example_1, example_2, example_3, example_4])
-        filled_template = self.construct_single_example(i, j, add_label = False)
-        return prefix + "\n\n" + filled_template
+        filled_template, context_1, context_2 = self.construct_single_example(i, j, add_label = False)
+        return "\n\n".join([instruction, prefix, filled_template]), context_1, context_2
 
     @staticmethod
     def filter_high_entropy_predictions(pair_labels, majority_class_threshold=0.999999):
@@ -112,7 +115,8 @@ Given this context, would {self.ents[i]} and {self.ents[j]} link to the same ent
             if  sorted_pair in self.gpt3_pairwise_labels:
                 return self.filter_high_entropy_predictions(self.gpt3_pairwise_labels[sorted_pair])
 
-            prompt = self.construct_pairwise_oracle_prompt(i, j)
+            prompt, context1, context2 = self.construct_pairwise_oracle_prompt(i, j)
+            print("PROMPT:\n" + prompt)
 
             pair_labels_not_none = []
 
@@ -129,7 +133,7 @@ Given this context, would {self.ents[i]} and {self.ents[j]} link to the same ent
                         ],
                         temperature=1.0,
                         max_tokens=1,
-                        n=50,
+                        n=self.num_predictions,
                     )
 
                     pair_labels = []
@@ -144,6 +148,7 @@ Given this context, would {self.ents[i]} and {self.ents[j]} link to the same ent
                         pair_labels.append(pair_label)
 
 
+                    print(f"labels:\n{pair_labels}\n\n")
                     pair_labels_not_none = [x for x in pair_labels if x is not None]
                     if len(pair_labels_not_none) <= self.num_predictions / 2:
                         time.sleep(0.8)
@@ -151,7 +156,10 @@ Given this context, would {self.ents[i]} and {self.ents[j]} link to the same ent
                         cache_row = {"entity1": self.ents[i],
                                      "entity2": self.ents[j],
                                      "labels": pair_labels_not_none,
-                                     "p_true": round(sum(pair_labels_not_none) / len(pair_labels_not_none), 4)}
+                                     "p_true": round(sum(pair_labels_not_none) / len(pair_labels_not_none), 4),
+                                     "context1": context1,
+                                     "context2": context2
+                                     }
                         self.cache_writer.write(cache_row)
                         self.gpt3_pairwise_labels[sorted_pair] = pair_labels_not_none
                         failure = False
