@@ -47,7 +47,8 @@ class GPT3Oracle:
             https://github.com/Yang233666/cmvc/blob/6e752b1aa5db7ff99eb2fa73476e392a00b0b89a/Context_view.py#L98
             '''
             longest_sentences = sorted([s for s in entity_sentences_dedup if len(s) < 599], key=len)
-            selected_sentences.append(longest_sentences[:3])
+            selected_sentences.append(
+                [:3])
 
         self.ents = ents
         self.selected_sentences = selected_sentences
