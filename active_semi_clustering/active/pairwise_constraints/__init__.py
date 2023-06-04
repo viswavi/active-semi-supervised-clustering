@@ -5,4 +5,5 @@ from .npu import NPU
 from .example_oracle import ExampleOracle
 from .gpt3_pc_oracle import GPT3Oracle
 from .label_based_selector import LabelBasedSelector
+from .distance_based_selector import DistanceBasedSelector
 from .random import Random

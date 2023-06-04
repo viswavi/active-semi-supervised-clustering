@@ -9,7 +9,7 @@ import openai
 from .example_oracle import MaximumQueriesExceeded
 
 class GPT3Oracle:
-    def __init__(self, X, labels, max_queries_cnt=2500, num_predictions=10, side_information=None, read_only=False):
+    def __init__(self, X, labels, max_queries_cnt=2500, num_predictions=5, side_information=None, read_only=False):
         self.labels = labels
         self.queries_cnt = 0
         self.max_queries_cnt = max_queries_cnt
@@ -17,7 +17,7 @@ class GPT3Oracle:
 
         self.side_information = side_information
         self.cache_dir = "/projects/ogma1/vijayv/okb-canonicalization/clustering/file/gpt3_cache"
-        self.cache_file = os.path.join(self.cache_dir, "pairwise_constraint_cache_multi_context_multi_predictions.jsonl")
+        self.cache_file = os.path.join(self.cache_dir, "pairwise_constraint_cache_prompt_engineered_classifier_oracle_free_selector_no_duplicate_pairs.jsonl")
         if os.path.exists(self.cache_file):
             self.cache_rows = list(jsonlines.open(self.cache_file))
         else:
@@ -25,7 +25,7 @@ class GPT3Oracle:
         if not read_only:
             self.cache_writer = jsonlines.open(self.cache_file, mode='a', flush=True)
         else:
-            self.cache_writer = jsonlines.open(self.cache_file, mode='r', flush=True)
+            self.cache_writer = jsonlines.open(self.cache_file, mode='r')
         self.NUM_RETRIES = 2
         self.read_only = read_only
 
@@ -69,10 +69,14 @@ class GPT3Oracle:
         context_1 = "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(self.selected_sentences[i])])
         context_2 = "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(self.selected_sentences[j])])
         template_prefix = f"""1) {self.ents[i]}
-    Context Sentences:\n{context_1}
-    2) {self.ents[j]}
-    Context Sentence:\n{context_2}
-    Given this context, would {self.ents[i]} and {self.ents[j]} link to the same entity's article on Wikipedia? """
+
+Context Sentences:\n{context_1}
+
+2) {self.ents[j]}
+
+Context Sentence:\n{context_2}
+
+Given this context, would {self.ents[i]} and {self.ents[j]} link to the same entity's article on Wikipedia? """
         if add_label:
             if self.labels[i] == self.labels[j]:
                 label = "Yes"
@@ -85,11 +89,19 @@ class GPT3Oracle:
 
     def construct_pairwise_oracle_prompt(self, i, j):
         side_info = self.side_information.side_info
-        instruction = """I am trying to cluster entity strings on Wikipedia according to the Wikipedia article title they refer to. To help me with this, for a given entity name, please make your best guess as to whether these two objects refer to the same person, location, organization, or object. Entities may be weirdly truncated or ambiguous - e.g. "Wind" may refer to the band "Earth, Wind, and Fire" or to "rescue service". For each entity, I will also provide you with up to 4 sentences from Wikipedia where this entity is referred to. These are just 4 examples where this entity appears and may not be the most representative sentences. Here are a few examples:"""
+        instruction = """You are tasked with clustering entity strings based on whether they refer to the same Wikipedia article. To do this, you will be given pairs of entity names and asked if their anchor text, if used separately to link to a Wikipedia article, is likely referring to the same article. Entity names may be truncated, abbreviated, or ambiguous.
+
+To help you make this determination, you will be given up to three context sentences from Wikipedia where the entity is used as anchor text for a hyperlink. Amongst each set of examples for a given entity, the entity for all three sentences is a link to the same article on Wikipedia. Based on these examples, you will decide whether the first entity and the second entity listed would likely link to the same Wikipedia article if used as separate anchor text.
+
+Please note that the context sentences may not be representative of the entity's typical usage, but should aid in resolving the ambiguity of entities that have similar or overlapping meanings.
+
+To avoid subjective decisions, the decision should be based on a strict set of criteria, such as whether the entities will generally be used in the same contexts, whether the context sentences mention the same topic, and whether the entities have the same domain and scope of meaning.
+
+Your task will be considered successful if the entities are clustered into groups that consistently refer to the same Wikipedia articles."""
         example_1 = self.construct_single_example(side_info.ent2id["B.A"], side_info.ent2id["M.D."])
         example_2 = self.construct_single_example(side_info.ent2id["B.A"], side_info.ent2id["bachelor"])
-        example_3 = self.construct_single_example(side_info.ent2id["British Government"], side_info.ent2id["government"])
-        example_4 = self.construct_single_example(side_info.ent2id["Duke of York"], side_info.ent2id["Frederick"])
+        example_3 = self.construct_single_example(side_info.ent2id["Duke of York"], side_info.ent2id["Frederick"])
+        example_4 = self.construct_single_example(side_info.ent2id["Academy Award"], side_info.ent2id["Best Actor in Supporting Role"])
         prefix = "\n\n".join([example_1, example_2, example_3, example_4])
         filled_template, context_1, context_2 = self.construct_single_example(i, j, add_label = False)
         return "\n\n".join([instruction, prefix, filled_template]), context_1, context_2
@@ -112,6 +124,7 @@ class GPT3Oracle:
             self.queries_cnt += 1
             sorted_pair_list = sorted([self.ents[i], self.ents[j]])
             sorted_pair = tuple(sorted_pair_list)
+
             if  sorted_pair in self.gpt3_pairwise_labels:
                 return self.filter_high_entropy_predictions(self.gpt3_pairwise_labels[sorted_pair])
 
@@ -126,6 +139,7 @@ class GPT3Oracle:
                 cache_row = None
                 try:
                     start = time.perf_counter()
+                    print(f"Querying {self.ents[i]} and {self.ents[j]}...")
                     response = openai.ChatCompletion.create(
                         model="gpt-3.5-turbo",
                         messages=[
@@ -146,7 +160,6 @@ class GPT3Oracle:
                         else:
                             pair_label = None
                         pair_labels.append(pair_label)
-
 
                     print(f"labels:\n{pair_labels}\n\n")
                     pair_labels_not_none = [x for x in pair_labels if x is not None]
@@ -169,7 +182,8 @@ class GPT3Oracle:
                     end = time.perf_counter()
                     if end - start < 1:
                         time.sleep(1 - (end - start))
-                except:
+                except Exception as e:
+                    print(e)
                     time.sleep(3)
 
             return self.filter_high_entropy_predictions(pair_labels_not_none)
