@@ -16,7 +16,7 @@ class GPT3Oracle:
         self.num_predictions = num_predictions
 
         self.side_information = side_information
-        self.cache_dir = "/projects/ogma1/vijayv/okb-canonicalization/clustering/file/gpt3_cache"
+        self.cache_dir = "/home/vijayv/okb-canonicalization/clustering/file/gpt3_cache"
         self.cache_file = os.path.join(self.cache_dir, "pairwise_constraint_cache_prompt_engineered_classifier_oracle_free_selector_no_duplicate_pairs.jsonl")
         if os.path.exists(self.cache_file):
             self.cache_rows = list(jsonlines.open(self.cache_file))

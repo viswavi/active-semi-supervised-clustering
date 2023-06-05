@@ -40,8 +40,7 @@ class SCCL(KMeans):
                  batch_size = 400,
                  linear_transformation = False,
                  canonicalization_side_information=None,
-                 tensorboard_parent_dir="/projects/ogma1/vijayv/okb-canonicalization/clustering/sccl/",
-                 tensorboard_dir="tmp"):
+                 tensorboard_parent_dir="/projects/ogma1/vijayv/okb-canonicalization/clustering/sccl/",                 tensorboard_dir="tmp"):
         self.n_clusters = n_clusters
         self.max_iter = max_iter
         self.normalize_vectors = normalize_vectors
@@ -82,8 +81,6 @@ class SCCL(KMeans):
 
         train_loader = util_data.DataLoader(X.astype("float32"), batch_size=self.batch_size, shuffle=True, num_workers=1)
 
-        breakpoint()
-
         model = SCCLMatrix(emb_size=X.shape[1], cluster_centers=cluster_centers, include_contrastive_loss=self.include_contrastive_loss, linear_transformation = self.linear_transformation) 
         model = model.cuda()
 
@@ -95,7 +92,7 @@ class SCCL(KMeans):
 
         # optimize  
         Args = namedtuple("Args", "lr lr_scale lr_scale_scl eta temperature objective print_freq max_iter batch_size tensorboard")
-        args = Args(1e-05, 100, 100, 10, 0.5, "SCCL", 300, 2500 * X.shape[0] / self.batch_size, self.batch_size, tensorboard)
+        args = Args(5e-06, 100, 100, 10, 0.5, "SCCL", 300, 2000 * X.shape[0] / self.batch_size, self.batch_size, tensorboard)
 
 
         optimizer = get_optimizer_linear_transformation(model, args, include_contrastive_loss=self.include_contrastive_loss, linear_transformation=self.linear_transformation)
