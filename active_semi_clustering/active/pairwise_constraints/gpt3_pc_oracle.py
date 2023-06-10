@@ -16,8 +16,8 @@ class GPT3Oracle:
         self.num_predictions = num_predictions
 
         self.side_information = side_information
-        self.cache_dir = "/home/vijayv/okb-canonicalization/clustering/file/gpt3_cache"
-        self.cache_file = os.path.join(self.cache_dir, "pairwise_constraint_cache_prompt_engineered_classifier_oracle_free_selector_no_duplicate_pairs.jsonl")
+        self.cache_dir = "/projects/ogma1/vijayv/okb-canonicalization/clustering/file/gpt3_cache"
+        self.cache_file = os.path.join(self.cache_dir, "pairwise_constraint_cache_large_scale_v1.jsonl")
         if os.path.exists(self.cache_file):
             self.cache_rows = list(jsonlines.open(self.cache_file))
         else:
@@ -26,6 +26,7 @@ class GPT3Oracle:
             self.cache_writer = jsonlines.open(self.cache_file, mode='a', flush=True)
         else:
             self.cache_writer = jsonlines.open(self.cache_file, mode='r')
+
         self.NUM_RETRIES = 2
         self.read_only = read_only
 
@@ -56,6 +57,7 @@ class GPT3Oracle:
         for row in self.cache_rows:
             sorted_pair_list = sorted([row["entity1"], row["entity2"]])
             self.gpt3_pairwise_labels[tuple(sorted_pair_list)] = row["labels"]
+
 
     def process_sentence_punctuation(self, sentences):
         processed_sentence_set = []
@@ -186,6 +188,9 @@ Your task will be considered successful if the entities are clustered into group
                     print(e)
                     time.sleep(3)
 
-            return self.filter_high_entropy_predictions(pair_labels_not_none)
+            if failure:
+                return None
+            else:
+                return self.filter_high_entropy_predictions(pair_labels_not_none)
         else:
             raise MaximumQueriesExceeded

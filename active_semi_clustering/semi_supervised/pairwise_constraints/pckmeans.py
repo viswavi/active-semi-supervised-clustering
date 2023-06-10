@@ -1,5 +1,7 @@
 import json
 import numpy as np
+from sklearn.preprocessing import normalize
+from sklearn.metrics.pairwise import euclidean_distances
 import time
 
 from active_semi_clustering.exceptions import EmptyClustersException
@@ -7,11 +9,13 @@ from .constraints import preprocess_constraints
 from active_semi_clustering.semi_supervised.labeled_data.kmeans import KMeans
 
 class PCKMeans(KMeans):
-    def __init__(self, n_clusters=3, max_iter=100, w=1, init="random"):
+    def __init__(self, n_clusters=3, max_iter=100, w=1, init="random", normalize_vectors=False, split_normalization=False):
         self.n_clusters = n_clusters
         self.max_iter = max_iter
         self.w = w
         self.init = init
+        self.normalize_vectors = normalize_vectors
+        self.split_normalization = split_normalization
 
     def fit(self, X, y=None, ml=[], cl=[]):
         # Preprocess constraints
@@ -29,12 +33,26 @@ class PCKMeans(KMeans):
         elapsed = time.perf_counter() - start
         print(f"Initializing neighborhoods took {round(elapsed, 4)} seconds")
 
+
         # Repeat until convergence
         for iteration in range(self.max_iter):
             print(f"\n\n\n\niteration: {iteration}")
+
+
+            if self.normalize_vectors:
+                if self.split_normalization:
+                    kg_centers = normalize(cluster_centers[:, :300], axis=1, norm="l2")
+                    bert_centers = normalize(cluster_centers[:, 300:], axis=1, norm="l2")
+                    cluster_centers = np.hstack([kg_centers, bert_centers])
+                else:
+                    cluster_centers = normalize(cluster_centers, axis=1, norm="l2")
+
+            cluster_distances = euclidean_distances(X, cluster_centers, squared=True)
+            max_cluster_distance = np.max(cluster_distances)
+
             start = time.perf_counter()
             # Assign clusters
-            labels = self._assign_clusters(X, cluster_centers, ml_graph, cl_graph, self.w)
+            labels = self._assign_clusters(X, cluster_centers, ml_graph, cl_graph, self.w, max_pairwise_distance=max_cluster_distance)
 
             # Estimate means
             prev_cluster_centers = cluster_centers
@@ -78,36 +96,42 @@ class PCKMeans(KMeans):
                     cluster_centers = np.concatenate([cluster_centers, remaining_cluster_centers])
         return cluster_centers
 
-    def _objective_function(self, X, x_i, centroids, c_i, labels, ml_graph, cl_graph, w, print_terms=False):
+    def _objective_function(self, X, x_i, centroids, c_i, labels, ml_graph, cl_graph, w, max_pairwise_distance=1.0, print_terms=False):
         distance = 1 / 2 * np.sum((X[x_i] - centroids[c_i]) ** 2)
 
         ml_penalty = 0
         for y_i in ml_graph[x_i]:
             if labels[y_i] != -1 and labels[y_i] != c_i:
+                #ml_penalty += (max_pairwise_distance - distance)/2
+                # assert max_pairwise_distance - distance >= -1e-10
                 ml_penalty += w
+#                ml_penalty += distance
 
         cl_penalty = 0
         for y_i in cl_graph[x_i]:
             if labels[y_i] == c_i:
+                # cl_penalty += distance
                 cl_penalty += w
+#                 cl_penalty += distance
+
         if print_terms:
             metric_dict = {"x_i": x_i, "distance": round(distance, 4), "ml_penalty": round(ml_penalty, 4), "cl_penalty": round(ml_penalty, 4)}
             # print(json.dumps(metric_dict))
 
         return distance + ml_penalty + cl_penalty
 
-    def _assign_clusters(self, X, cluster_centers, ml_graph, cl_graph, w):
+    def _assign_clusters(self, X, cluster_centers, ml_graph, cl_graph, w, max_pairwise_distance=1.0):
         labels = np.full(X.shape[0], fill_value=-1)
         min_cluster_distances = []
 
         index = list(range(X.shape[0]))
         np.random.shuffle(index)
         for x_i in index:
-            cluster_distances = [self._objective_function(X, x_i, cluster_centers, c_i, labels, ml_graph, cl_graph, w) for c_i in range(self.n_clusters)]
+            cluster_distances = [self._objective_function(X, x_i, cluster_centers, c_i, labels, ml_graph, cl_graph, w, max_pairwise_distance=max_pairwise_distance) for c_i in range(self.n_clusters)]
             min_cluster_distances.append(min(cluster_distances))
             labels[x_i] = np.argmin(cluster_distances)
 
-            _ = self._objective_function(X, x_i, cluster_centers, labels[x_i], labels, ml_graph, cl_graph, w, print_terms=True)
+            _ = self._objective_function(X, x_i, cluster_centers, labels[x_i], labels, ml_graph, cl_graph, w, max_pairwise_distance=max_pairwise_distance, print_terms=True)
 
 
         # Handle empty clusters
@@ -115,7 +139,8 @@ class PCKMeans(KMeans):
         n_samples_in_cluster = np.bincount(labels, minlength=self.n_clusters)
         empty_clusters = np.where(n_samples_in_cluster == 0)[0]
 
-        if len(empty_clusters) > 0:
+        continue_counter = 0
+        while len(empty_clusters) > 0:
             original_labels = labels.copy()
             print(f"Empty clusters: {empty_clusters}")
             points_by_min_cluster_distance = np.argsort(-np.array(min_cluster_distances))
@@ -129,6 +154,8 @@ class PCKMeans(KMeans):
             n_samples_in_cluster = np.bincount(labels, minlength=self.n_clusters)
             empty_clusters = np.where(n_samples_in_cluster == 0)[0]
             if len(empty_clusters) > 0:
+                continue_counter += 1
+            if continue_counter > 10:
                 breakpoint()
         return labels
 
