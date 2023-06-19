@@ -1,10 +1,12 @@
-from active_semi_clustering.exceptions import InconsistentConstraintsException
+from tqdm import tqdm
 
+from active_semi_clustering.exceptions import InconsistentConstraintsException
 
 # Taken from https://github.com/Behrouz-Babaki/COP-Kmeans/blob/master/copkmeans/cop_kmeans.py
 def preprocess_constraints(ml, cl, n):
     "Create a graph of constraints for both must- and cannot-links"
 
+    print("Preprocessing constraints")
     # Represent the graphs using adjacency-lists
     ml_graph, cl_graph = {}, {}
     for i in range(n):
@@ -35,7 +37,7 @@ def preprocess_constraints(ml, cl, n):
     # See http://www.techiedelight.com/transitive-closure-graph/ for more details
     visited = [False] * n
     neighborhoods = []
-    for i in range(n):
+    for i in tqdm(range(n)):
         if not visited[i] and ml_graph[i]:
             component = []
             dfs(i, ml_graph, visited, component)
@@ -45,7 +47,7 @@ def preprocess_constraints(ml, cl, n):
                         ml_graph[x1].add(x2)
             neighborhoods.append(component)
 
-    for (i, j) in cl:
+    for (i, j) in tqdm(cl):
         for x in ml_graph[i]:
             if x not in ml_graph[j] and j not in ml_graph[x]:
                 add_both(cl_graph, x, j)
@@ -65,3 +67,27 @@ def preprocess_constraints(ml, cl, n):
                 raise InconsistentConstraintsException('Inconsistent constraints between {} and {}'.format(i, j))
 
     return ml_graph, cl_graph, neighborhoods
+
+
+def preprocess_constraints_no_transitive_closure(ml, cl, n):
+    "Create a graph of constraints for both must- and cannot-links"
+
+    # Represent the graphs using adjacency-lists
+    ml_graph, cl_graph = {}, {}
+    for i in range(n):
+        ml_graph[i] = set()
+        cl_graph[i] = set()
+
+    def add_both(d, i, j):
+        d[i].add(j)
+        d[j].add(i)
+
+    for (i, j) in ml:
+        ml_graph[i].add(j)
+        ml_graph[j].add(i)
+
+    for (i, j) in cl:
+        cl_graph[i].add(j)
+        cl_graph[j].add(i)
+
+    return ml_graph, cl_graph

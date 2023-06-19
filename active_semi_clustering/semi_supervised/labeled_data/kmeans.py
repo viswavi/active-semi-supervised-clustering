@@ -1,12 +1,15 @@
 
 from active_semi_clustering.exceptions import EmptyClustersException
+import math
 import numpy as np
+from ortools.linear_solver import pywraplp
 import random
 import scipy.spatial.distance
 from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.preprocessing import normalize
 from sklearn.utils import check_random_state
 from sklearn.utils.extmath import row_norms
+from tqdm import tqdm
 
 from cmvc.Multi_view_CH_kmeans import init_seeded_kmeans_plusplus
 
@@ -76,9 +79,9 @@ class KMeans:
                 converged = np.allclose(cluster_centers_shift, np.zeros(cluster_centers.shape), atol=1e-6, rtol=0)
                 timer_dict["Check convergence"] = round(time.perf_counter() - timer, 3)
                 timer = time.perf_counter()
-                # print(f"K-Means iteration {iteration} took {round(time.perf_counter() - original_start, 3)} seconds.")
+                print(f"K-Means iteration {iteration} took {round(time.perf_counter() - original_start, 3)} seconds.")
 
-                # print(f"Timer dict: {timer_dict}")
+                print(f"Timer dict: {timer_dict}")
 
                 if converged: break
 
@@ -96,7 +99,7 @@ class KMeans:
 
     def _init_cluster_centers(self, X, y=None, seed_set = None, duplicate_eps = 1e-8, random_seed=0):
         random_state = np.random.RandomState(random_seed)
-        assert self.n_clusters <= len(X)
+        assert self.n_clusters <= len(X), breakpoint()
         x_squared_norms = row_norms(X, squared=True)
 
         if self.init == "random":
@@ -120,6 +123,10 @@ class KMeans:
                         seeds[i] = sampled_vector
                         break
         else:
+            timer_dict = {}
+            timer = time.perf_counter()
+            kpp_start = timer
+
             # Use k-means++ (https://en.wikipedia.org/wiki/K-means%2B%2B#Improved_initialization_algorithm) to 
             # initialize the cluster centers.
 
@@ -140,8 +147,13 @@ class KMeans:
                 cluster_seeds.extend(seed_set)
 
             closest_dist_sq_all = euclidean_distances(seed_set, X, Y_norm_squared=x_squared_norms, squared=True)
+            timer_dict["Initial Euclidean Distances"] = time.perf_counter() - timer
+            timer = time.perf_counter()
+
+            timer_dict["Pairwise Euclidean Distances"] = 0
+            timer_dict["Compute candidate potentials"] = 0
             closest_dist_sq = np.min(closest_dist_sq_all, axis=0)
-            for i in range(len(cluster_seeds), self.n_clusters):
+            for i in tqdm(range(len(cluster_seeds), self.n_clusters)):
                 nearest_distances_normalized = closest_dist_sq / sum(closest_dist_sq)
                 assert len(nearest_distances_normalized.shape) == 1
                 assert len(remaining_row_idxs) == len(nearest_distances_normalized)
@@ -149,16 +161,23 @@ class KMeans:
                 # Try out the top 'n_local_trials' choices for the next seed, and choose the one with least
                 # average distance to other points in the dataset.
                 candidate_ids = random_state.choice(remaining_row_idxs, p=nearest_distances_normalized, size=n_local_trials)
+                start = time.perf_counter()
                 distance_to_candidates = euclidean_distances(X[candidate_ids], X, Y_norm_squared=x_squared_norms, squared=True)
+                timer_dict["Pairwise Euclidean Distances"] += time.perf_counter() - start
+
+                start = time.perf_counter()
                 min_remaining_distance_to_candidates = np.minimum(closest_dist_sq, distance_to_candidates)
                 candidate_potentials = min_remaining_distance_to_candidates.sum(axis=1)
                 best_candidate = np.argmin(candidate_potentials)
+                timer_dict["Compute candidate potentials"] += time.perf_counter() - start
 
                 # The `closest_dist_sq` array should contain the distance from each point in
                 # the dataset to its closest seed point.
                 closest_dist_sq = min_remaining_distance_to_candidates[best_candidate]
                 cluster_seeds.append(X[candidate_ids[best_candidate]])
             seeds = np.vstack(cluster_seeds)
+            timer_dict["Total K-Means++ time"] = time.perf_counter() - kpp_start
+            print(f"Total K-Means++ times: {timer_dict}")
         return seeds
 
     def _dist(self, x, y):
@@ -167,9 +186,17 @@ class KMeans:
     def _assign_clusters(self, X, y, cluster_centers, dist):
         labels = np.full(X.shape[0], fill_value=-1)
 
-        for i, x in enumerate(X):
-            labels[i] = np.argmin([dist(x, c) for c in cluster_centers])
+        start = time.perf_counter()
 
+        point_cluster_distances = euclidean_distances(X, cluster_centers, squared=False)
+        labels = np.argmin(point_cluster_distances, axis=1)
+        # for i, x in enumerate(X):
+        #    labels[i] = np.argmin([dist(x, c) for c in cluster_centers])
+
+        end = time.perf_counter()
+        print(f"Assigning points to clusters took {round(end - start, 3)} seconds.")
+
+        start = time.perf_counter()
         # Handle empty clusters
         # See https://github.com/scikit-learn/scikit-learn/blob/0.19.1/sklearn/cluster/_k_means.pyx#L309
         n_samples_in_cluster = np.bincount(labels, minlength=self.n_clusters)
@@ -178,7 +205,79 @@ class KMeans:
         if len(empty_clusters) > 0:
             raise EmptyClustersException
 
+        end = time.perf_counter()
+        print(f"Handling empty clusters took {round(end - start, 3)} seconds.")
+
         return labels
 
     def _get_cluster_centers(self, X, labels):
-        return np.array([X[labels == i].mean(axis=0) for i in range(self.n_clusters)])
+        start = time.perf_counter()
+        cluster_centers = np.array([X[labels == i].mean(axis=0) for i in range(self.n_clusters)])
+        end = time.perf_counter()
+        print(f"Computing cluster centers took {round(end - start, 3)} seconds.")
+        return cluster_centers
+
+
+
+class CardinalityConstrainedKMeans(KMeans):
+    def _assign_clusters(self, X, y, cluster_centers, dist):
+
+        solver = pywraplp.Solver.CreateSolver('CBC_MIXED_INTEGER_PROGRAMMING')
+        objective = solver.Objective()
+
+
+        labels = np.full(X.shape[0], fill_value=-1)
+        min_cluster_distances = []
+
+        index = list(range(X.shape[0]))
+        #np.random.shuffle(index)
+        point_cluster_weights = []
+
+
+        variable_matrix = []
+        for x_i in index:
+            cluster_distances = [dist(X[x_i], c) for c in cluster_centers]
+            point_cluster_weights.append(cluster_distances)
+            cluster_variables = []
+            for c_i in range(self.n_clusters):
+                point_cluster_variable = solver.BoolVar(name=f"x_{x_i}->c_{c_i}")
+                cluster_variables.append(point_cluster_variable)
+                objective.SetCoefficient(point_cluster_variable, cluster_distances[c_i])
+            variable_matrix.append(cluster_variables)
+
+        variable_creation_end = time.perf_counter()
+
+        constraint_creation_start = time.perf_counter()
+        point_assignment_constraints = []
+        for x_i in range(len(X)):
+            single_assignment_constraint = solver.RowConstraint(1, 1, str(f"x_{x_i}"))
+            point_assignment_constraints.append(single_assignment_constraint)
+
+        cluster_size_constraints = []
+        for c_i in range(self.n_clusters):
+            cardinality_constraint = solver.RowConstraint(3, 15, str(f"c_{c_i}"))
+            for x_i in range(len(X)):
+                assignment = variable_matrix[x_i][c_i]
+                cardinality_constraint.SetCoefficient(assignment, 1)
+                point_assignment_constraints[x_i].SetCoefficient(assignment, 1)
+            cluster_size_constraints.append(cardinality_constraint)
+        constraint_creation_end = time.perf_counter()
+
+        assert solver.NumConstraints() == self.n_clusters + len(X)
+        objective.SetMinimization()
+        constraint_solving_start = time.perf_counter()
+        status = solver.Solve()
+        constraint_solving_end = time.perf_counter()
+
+        if status == pywraplp.Solver.OPTIMAL:
+            for var_idx, assignment_list in enumerate(variable_matrix):
+                assignment = None
+                for clust_idx, clust_variable in enumerate(assignment_list):
+                    if clust_variable.solution_value() == 1.0:
+                        assignment = clust_idx
+                        break
+                assert assignment is not None
+                labels[var_idx] = assignment
+        else:
+            breakpoint()
+        return labels

@@ -9,7 +9,7 @@ import openai
 from .example_oracle import MaximumQueriesExceeded
 
 class GPT3Oracle:
-    def __init__(self, X, labels, max_queries_cnt=2500, num_predictions=5, side_information=None, read_only=False):
+    def __init__(self, X, labels, dataset_name, split=None, max_queries_cnt=2500, num_predictions=5, side_information=None, read_only=False):
         self.labels = labels
         self.queries_cnt = 0
         self.max_queries_cnt = max_queries_cnt
@@ -17,7 +17,8 @@ class GPT3Oracle:
 
         self.side_information = side_information
         self.cache_dir = "/projects/ogma1/vijayv/okb-canonicalization/clustering/file/gpt3_cache"
-        self.cache_file = os.path.join(self.cache_dir, "pairwise_constraint_cache_large_scale_v1.jsonl")
+        self.dataset_name = dataset_name
+        self.cache_file = os.path.join(self.cache_dir, f"{dataset_name}_pairwise_constraint_cache.jsonl")
         if os.path.exists(self.cache_file):
             self.cache_rows = list(jsonlines.open(self.cache_file))
         else:
@@ -31,7 +32,7 @@ class GPT3Oracle:
         self.read_only = read_only
 
         side_info = self.side_information.side_info
-        self.sentence_unprocessing_mapping_file = os.path.join(self.cache_dir, "sentence_unprocessing_map.json")
+        self.sentence_unprocessing_mapping_file = os.path.join(self.cache_dir, f"{dataset_name}_{split}_sentence_unprocessing_map.json")
         sentence_unprocessing_mapping = json.load(open(self.sentence_unprocessing_mapping_file))
         selected_sentences = []
         ents = []
@@ -48,7 +49,7 @@ class GPT3Oracle:
             https://github.com/Yang233666/cmvc/blob/6e752b1aa5db7ff99eb2fa73476e392a00b0b89a/Context_view.py#L98
             '''
             longest_sentences = sorted([s for s in entity_sentences_dedup if len(s) < 599], key=len)
-            selected_sentences.append(longest_sentences[:3])
+            selected_sentences.append(list(set(longest_sentences[:3])))
 
         self.ents = ents
         self.selected_sentences = selected_sentences
@@ -70,6 +71,12 @@ class GPT3Oracle:
         context_labels = ["a", "b", "c", "d"]
         context_1 = "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(self.selected_sentences[i])])
         context_2 = "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(self.selected_sentences[j])])
+        if self.dataset_name == "OPIEC59k":
+            prompt_suffix = "link to the same entity's article on Wikipedia? "
+        elif self.dataset_name == "reverb45k":
+            prompt_suffix = "link to the same entity on a knowledge graph like Freebase? "
+        else:
+            raise NotImplementedError
         template_prefix = f"""1) {self.ents[i]}
 
 Context Sentences:\n{context_1}
@@ -78,7 +85,7 @@ Context Sentences:\n{context_1}
 
 Context Sentence:\n{context_2}
 
-Given this context, would {self.ents[i]} and {self.ents[j]} link to the same entity's article on Wikipedia? """
+Given this context, would {self.ents[i]} and {self.ents[j]} likely {prompt_suffix}"""
         if add_label:
             if self.labels[i] == self.labels[j]:
                 label = "Yes"
@@ -91,7 +98,8 @@ Given this context, would {self.ents[i]} and {self.ents[j]} link to the same ent
 
     def construct_pairwise_oracle_prompt(self, i, j):
         side_info = self.side_information.side_info
-        instruction = """You are tasked with clustering entity strings based on whether they refer to the same Wikipedia article. To do this, you will be given pairs of entity names and asked if their anchor text, if used separately to link to a Wikipedia article, is likely referring to the same article. Entity names may be truncated, abbreviated, or ambiguous.
+        if self.dataset_name == "OPIEC59k":
+            instruction = """You are tasked with clustering entity strings based on whether they refer to the same Wikipedia article. To do this, you will be given pairs of entity names and asked if their anchor text, if used separately to link to a Wikipedia article, is likely referring to the same article. Entity names may be truncated, abbreviated, or ambiguous.
 
 To help you make this determination, you will be given up to three context sentences from Wikipedia where the entity is used as anchor text for a hyperlink. Amongst each set of examples for a given entity, the entity for all three sentences is a link to the same article on Wikipedia. Based on these examples, you will decide whether the first entity and the second entity listed would likely link to the same Wikipedia article if used as separate anchor text.
 
@@ -100,11 +108,28 @@ Please note that the context sentences may not be representative of the entity's
 To avoid subjective decisions, the decision should be based on a strict set of criteria, such as whether the entities will generally be used in the same contexts, whether the context sentences mention the same topic, and whether the entities have the same domain and scope of meaning.
 
 Your task will be considered successful if the entities are clustered into groups that consistently refer to the same Wikipedia articles."""
-        example_1 = self.construct_single_example(side_info.ent2id["B.A"], side_info.ent2id["M.D."])
-        example_2 = self.construct_single_example(side_info.ent2id["B.A"], side_info.ent2id["bachelor"])
-        example_3 = self.construct_single_example(side_info.ent2id["Duke of York"], side_info.ent2id["Frederick"])
-        example_4 = self.construct_single_example(side_info.ent2id["Academy Award"], side_info.ent2id["Best Actor in Supporting Role"])
-        prefix = "\n\n".join([example_1, example_2, example_3, example_4])
+            example_1 = self.construct_single_example(side_info.ent2id["B.A"], side_info.ent2id["M.D."])
+            example_2 = self.construct_single_example(side_info.ent2id["B.A"], side_info.ent2id["bachelor"])
+            example_3 = self.construct_single_example(side_info.ent2id["Duke of York"], side_info.ent2id["Frederick"])
+            example_4 = self.construct_single_example(side_info.ent2id["Academy Award"], side_info.ent2id["Best Actor in Supporting Role"])
+            prefix = "\n\n".join([example_1, example_2, example_3, example_4])
+        elif self.dataset_name == "reverb45k":
+            instruction = """You are tasked with clustering entity strings based on whether they link to the same entity on the Freebase knowledge graph. To do this, you will be given pairs of entity names and asked if these strings, if linked to a knowledge graph, are likely referring to the same entity (e.g. a concept, person, or organization). Entity names may be truncated, abbreviated, or ambiguous.
+
+To help you make this determination, you will be given up to three context sentences from the internet that mention an entity. Amongst each set of examples for a given entity, assume that the entity mentioned in all three context sentences links refers to the same object. Based on these examples, you will decide whether the first entity and the second entity listed are likely to link to the *same* knowledge graph entity.
+
+Please note that the context sentences may not be representative of the entity's typical usage, but should aid in resolving the ambiguity of entities that have similar or overlapping meanings.
+
+To avoid subjective decisions, the decision should be based on a strict set of criteria, such as whether the entities will generally be used in the same contexts, whether the entities likely refer to the same person or organization, whether the context sentences mention the same topic, and whether the entities have the same domain and scope of meaning.
+
+Your task will be considered successful if the entities are clustered into groups that consistently link to the same knowledge graph node."""
+            example_1 = self.construct_single_example(side_info.ent2id["Hannibal"], side_info.ent2id["Hannibal Barca"])
+            example_2 = self.construct_single_example(side_info.ent2id["Lutheran Church"], side_info.ent2id["Church"])
+            example_3 = self.construct_single_example(side_info.ent2id["Grove Art Online"], side_info.ent2id["Oxford Art Online"])
+            example_4 = self.construct_single_example(side_info.ent2id["Charlie Williams"], side_info.ent2id["Williams"])
+            prefix = "\n\n".join([example_1, example_2, example_3, example_4])
+        else:
+            raise NotImplementedError
         filled_template, context_1, context_2 = self.construct_single_example(i, j, add_label = False)
         return "\n\n".join([instruction, prefix, filled_template]), context_1, context_2
 
@@ -122,6 +147,7 @@ Your task will be considered successful if the entities are clustered into group
             return None
 
     def query(self, i, j):
+        print(f"Querying entities {i} and {j}")
         if self.queries_cnt < self.max_queries_cnt:
             self.queries_cnt += 1
             sorted_pair_list = sorted([self.ents[i], self.ents[j]])
@@ -193,4 +219,5 @@ Your task will be considered successful if the entities are clustered into group
             else:
                 return self.filter_high_entropy_predictions(pair_labels_not_none)
         else:
+            breakpoint()
             raise MaximumQueriesExceeded
