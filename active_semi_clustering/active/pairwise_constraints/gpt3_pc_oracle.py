@@ -3,10 +3,50 @@ import jsonlines
 import math
 import os
 import time
+import errno
+import signal
+import functools
+
 
 import openai
 
 from .example_oracle import MaximumQueriesExceeded
+
+class TimeoutError(Exception):
+    pass
+
+def timeout(seconds=10, error_message=os.strerror(errno.ETIME)):
+    def decorator(func):
+        def _handle_timeout(signum, frame):
+            raise TimeoutError(error_message)
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            signal.signal(signal.SIGALRM, _handle_timeout)
+            signal.alarm(seconds)
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                signal.alarm(0)
+            return result
+
+        return wrapper
+
+    return decorator
+
+@timeout(5, os.strerror(errno.ETIMEDOUT))
+def call_chatgpt(prompt, num_predictions, temperature=1.0, max_tokens=1, timeout=2.0):
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "user", "content": prompt},
+        ],
+        temperature=temperature,
+        max_tokens=max_tokens,
+        n=num_predictions,
+        timeout=timeout,
+    )
+    return response
 
 class GPT3Oracle:
     def __init__(self, X, labels, dataset_name, split=None, max_queries_cnt=2500, num_predictions=5, side_information=None, read_only=False):
@@ -31,25 +71,31 @@ class GPT3Oracle:
         self.NUM_RETRIES = 2
         self.read_only = read_only
 
-        side_info = self.side_information.side_info
-        self.sentence_unprocessing_mapping_file = os.path.join(self.cache_dir, f"{dataset_name}_{split}_sentence_unprocessing_map.json")
-        sentence_unprocessing_mapping = json.load(open(self.sentence_unprocessing_mapping_file))
+        if not isinstance(self.side_information, list):
+            breakpoint()
+            side_info = self.side_information.side_info
+            self.sentence_unprocessing_mapping_file = os.path.join(self.cache_dir, f"{dataset_name}_{split}_sentence_unprocessing_map.json")
+            sentence_unprocessing_mapping = json.load(open(self.sentence_unprocessing_mapping_file))
         selected_sentences = []
         ents = []
 
         for i in range(len(X)):
-            ents.append(side_info.id2ent[i])
-            entity_sentence_idxs = side_info.ent_id2sentence_list[i]
-            unprocessed_sentences = [sentence_unprocessing_mapping[side_info.sentence_List[j]] for j in entity_sentence_idxs]
-            entity_sentences = self.process_sentence_punctuation(unprocessed_sentences)
-            entity_sentences_dedup = list(set(entity_sentences))
+            if isinstance(self.side_information, list):
+                selected_sentences.append([self.side_information[i]])
+                ents.append(self.side_information[i])
+            else:
+                ents.append(side_info.id2ent[i])
+                entity_sentence_idxs = side_info.ent_id2sentence_list[i]
+                unprocessed_sentences = [sentence_unprocessing_mapping[side_info.sentence_List[j]] for j in entity_sentence_idxs]
+                entity_sentences = self.process_sentence_punctuation(unprocessed_sentences)
+                entity_sentences_dedup = list(set(entity_sentences))
 
-            '''
-            Choose longest sentence under 306 characers, as in
-            https://github.com/Yang233666/cmvc/blob/6e752b1aa5db7ff99eb2fa73476e392a00b0b89a/Context_view.py#L98
-            '''
-            longest_sentences = sorted([s for s in entity_sentences_dedup if len(s) < 599], key=len)
-            selected_sentences.append(list(set(longest_sentences[:3])))
+                '''
+                Choose longest sentence under 306 characers, as in
+                https://github.com/Yang233666/cmvc/blob/6e752b1aa5db7ff99eb2fa73476e392a00b0b89a/Context_view.py#L98
+                '''
+                longest_sentences = sorted([s for s in entity_sentences_dedup if len(s) < 599], key=len)
+                selected_sentences.append(list(set(longest_sentences[:3])))
 
         self.ents = ents
         self.selected_sentences = selected_sentences
@@ -68,16 +114,24 @@ class GPT3Oracle:
 
 
     def construct_single_example(self, i, j, add_label=True):
-        context_labels = ["a", "b", "c", "d"]
-        context_1 = "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(self.selected_sentences[i])])
-        context_2 = "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(self.selected_sentences[j])])
         if self.dataset_name == "OPIEC59k":
             prompt_suffix = "link to the same entity's article on Wikipedia? "
         elif self.dataset_name == "reverb45k":
             prompt_suffix = "link to the same entity on a knowledge graph like Freebase? "
+        elif self.dataset_name == "tweet":
+            prompt_suffix = "discuss the same topic? "
+        elif self.dataset_name == "clinc":
+            prompt_suffix = "express the same general intent? "
+        elif self.dataset_name == "bank77":
+            prompt_suffix = "express the same general intent? "
         else:
-            raise NotImplementedError
-        template_prefix = f"""1) {self.ents[i]}
+            raise ValueError(f"Dataset {self.dataset_name} not supported.")
+
+        if self.dataset_name == "OPIEC59k" or self.dataset_name == "reverb45k":
+            context_labels = ["a", "b", "c", "d"]
+            context_1 = "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(self.selected_sentences[i])])
+            context_2 = "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(self.selected_sentences[j])])
+            template_prefix = f"""1) {self.ents[i]}
 
 Context Sentences:\n{context_1}
 
@@ -86,6 +140,22 @@ Context Sentences:\n{context_1}
 Context Sentence:\n{context_2}
 
 Given this context, would {self.ents[i]} and {self.ents[j]} likely {prompt_suffix}"""
+        else:
+            if self.dataset_name == "tweet":
+                text_type = "Tweet"
+            elif self.dataset_name == "clinc":
+                text_type = "Utterance"
+            elif self.dataset_name == "bank77":
+                text_type = "Utterance"
+            else:
+                raise ValueError(f"Dataset {self.dataset_name} not supported.")
+            template_prefix = f"""{text_type} #1: {self.selected_sentences[i][0]}
+{text_type} #2: {self.selected_sentences[j][0]}
+
+Given this context, do these two {text_type.lower()}s likely {prompt_suffix}"""
+            context_1 = self.selected_sentences[i][0]
+            context_2 = self.selected_sentences[j][0]
+
         if add_label:
             if self.labels[i] == self.labels[j]:
                 label = "Yes"
@@ -97,7 +167,10 @@ Given this context, would {self.ents[i]} and {self.ents[j]} likely {prompt_suffi
             return template_prefix, context_1, context_2
 
     def construct_pairwise_oracle_prompt(self, i, j):
-        side_info = self.side_information.side_info
+        if isinstance(self.side_information, list):
+            side_info = None
+        else:
+            side_info = self.side_information.side_info
         if self.dataset_name == "OPIEC59k":
             instruction = """You are tasked with clustering entity strings based on whether they refer to the same Wikipedia article. To do this, you will be given pairs of entity names and asked if their anchor text, if used separately to link to a Wikipedia article, is likely referring to the same article. Entity names may be truncated, abbreviated, or ambiguous.
 
@@ -128,6 +201,33 @@ Your task will be considered successful if the entities are clustered into group
             example_3 = self.construct_single_example(side_info.ent2id["Grove Art Online"], side_info.ent2id["Oxford Art Online"])
             example_4 = self.construct_single_example(side_info.ent2id["Charlie Williams"], side_info.ent2id["Williams"])
             prefix = "\n\n".join([example_1, example_2, example_3, example_4])
+        elif self.dataset_name == "tweet":
+            instruction = """You are tasked with clustering tweets based on whether they discuss the same topic. To do this, you will be given pairs of (stopword-removed) tweets and asked if they discuss the same topic. To avoid subjective decisions, the decision should be based on a strict set of criteria, such as whether the tweets explicitly mention the same topic or whether they reflect the same contexts.
+
+Your task will be considered successful if the tweets are clustered into groups that consistently discuss the same topic."""
+            example_1 = self.construct_single_example(0, 563)
+            example_2 = self.construct_single_example(4, 187)
+            example_3 = self.construct_single_example(2135, 1218)
+            example_4 = self.construct_single_example(2471, 1218)
+            prefix = "\n\n".join([example_1, example_2, example_3, example_4])
+        elif self.dataset_name == "clinc":
+            instruction = """You are tasked with clustering queries for a task-oriented dialog system based on whether they express the same general user intent. To do this, you will be given pairs of user queries and asked if they express the same general user need or intent.
+
+Your task will be considered successful if the queries are clustered into groups that consistently express the same general intent."""
+            example_1 = self.construct_single_example(1, 2)
+            example_2 = self.construct_single_example(70, 700)
+            example_3 = self.construct_single_example(1525, 1527)
+            example_4 = self.construct_single_example(1500, 1000)
+            prefix = "\n\n".join([example_1, example_2, example_3, example_4])
+        elif self.dataset_name == "bank77":
+            instruction = """You are tasked with clustering queries for a online banking system based on whether they express the same general user intent. To do this, you will be given pairs of user queries and asked if they express the same general user need or intent.
+
+Your task will be considered successful if the queries are clustered into groups that consistently express the same general intent."""
+            example_1 = self.construct_single_example(0, 1)
+            example_2 = self.construct_single_example(1990, 2001)
+            example_3 = self.construct_single_example(2010, 2001)
+            example_4 = self.construct_single_example(2900, 3000)
+            prefix = "\n\n".join([example_1, example_2, example_3, example_4])
         else:
             raise NotImplementedError
         filled_template, context_1, context_2 = self.construct_single_example(i, j, add_label = False)
@@ -147,7 +247,7 @@ Your task will be considered successful if the entities are clustered into group
             return None
 
     def query(self, i, j):
-        print(f"Querying entities {i} and {j}")
+        print(f"Querying {i} and {j}")
         if self.queries_cnt < self.max_queries_cnt:
             self.queries_cnt += 1
             sorted_pair_list = sorted([self.ents[i], self.ents[j]])
@@ -168,15 +268,8 @@ Your task will be considered successful if the entities are clustered into group
                 try:
                     start = time.perf_counter()
                     print(f"Querying {self.ents[i]} and {self.ents[j]}...")
-                    response = openai.ChatCompletion.create(
-                        model="gpt-3.5-turbo",
-                        messages=[
-                            {"role": "user", "content": prompt},
-                        ],
-                        temperature=1.0,
-                        max_tokens=1,
-                        n=self.num_predictions,
-                    )
+                    response = call_chatgpt(prompt, self.num_predictions, temperature=1.0, max_tokens=1, timeout=2.0)
+                    print(f"response took {round(time.perf_counter()-start, 2)} seconds")
 
                     pair_labels = []
                     for choice in response.choices:
@@ -192,7 +285,7 @@ Your task will be considered successful if the entities are clustered into group
                     print(f"labels:\n{pair_labels}\n\n")
                     pair_labels_not_none = [x for x in pair_labels if x is not None]
                     if len(pair_labels_not_none) <= self.num_predictions / 2:
-                        time.sleep(0.8)
+                        time.sleep(0.2)
                     else:
                         cache_row = {"entity1": self.ents[i],
                                      "entity2": self.ents[j],
@@ -208,8 +301,8 @@ Your task will be considered successful if the entities are clustered into group
 
                     num_retries += 1
                     end = time.perf_counter()
-                    if end - start < 1:
-                        time.sleep(1 - (end - start))
+                    if end - start < 0.3:
+                        time.sleep(0.3 - (end - start))
                 except Exception as e:
                     print(e)
                     time.sleep(3)
@@ -219,5 +312,4 @@ Your task will be considered successful if the entities are clustered into group
             else:
                 return self.filter_high_entropy_predictions(pair_labels_not_none)
         else:
-            breakpoint()
             raise MaximumQueriesExceeded

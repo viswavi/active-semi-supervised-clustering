@@ -26,18 +26,18 @@ class PCKMeans(KMeans):
 
     def fit(self, X, y=None, ml=[], cl=[]):
         # Preprocess constraints
-        _, _, neighborhoods = preprocess_constraints(ml, cl, X.shape[0])
+        # _, _, neighborhoods = preprocess_constraints(ml, cl, X.shape[0])
         ml_graph, cl_graph = preprocess_constraints_no_transitive_closure(ml, cl, X.shape[0])
 
         print(f"ML constraints:\n{ml}\n")
         print(f"CL constraints:\n{cl}\n")
 
-        print(f"Num neighborhoods: {sorted([len(n) for n in neighborhoods])}\n\n\n")
+        # print(f"Num neighborhoods: {sorted([len(n) for n in neighborhoods])}\n\n\n")
 
         # Initialize centroids
-        # cluster_centers = self._init_cluster_centers(X)
         start = time.perf_counter()
-        cluster_centers = self._initialize_cluster_centers(X, neighborhoods)
+        cluster_centers = self._init_cluster_centers(X)
+        #cluster_centers = self._initialize_cluster_centers(X, neighborhoods)
         elapsed = time.perf_counter() - start
         print(f"Initializing neighborhoods took {round(elapsed, 4)} seconds")
 
@@ -69,7 +69,7 @@ class PCKMeans(KMeans):
             elapsed = time.perf_counter() - start
             print(f"elapsed time: {round(elapsed, 3)}")
 
-            if iteration % 10 == 0:
+            if not isinstance(self.side_information, list) and iteration % 10 == 0:
                 ave_prec, ave_recall, ave_f1, macro_prec, micro_prec, pair_prec, macro_recall, micro_recall, pair_recall, macro_f1, micro_f1, pairwise_f1, model_clusters, model_Singletons, gold_clusters, gold_Singletons  = cluster_test(self.side_information.p, self.side_information.side_info, labels, self.side_information.true_ent2clust, self.side_information.true_clust2ent)
                 metric_dict = {"macro_f1": macro_f1, "micro_f1": micro_f1, "pairwise_f1": pairwise_f1, "ave_f1": ave_f1}
                 print(f"metric_dict at iteration {iteration}:\t{metric_dict}")

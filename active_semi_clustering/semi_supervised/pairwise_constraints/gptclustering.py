@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import Counter, defaultdict
 import json
 import jsonlines
 import numpy as np
@@ -31,7 +31,8 @@ class GPTExpansionClustering(KMeans):
         self.NUM_RETRIES = 1
         self.read_only = read_only
 
-        self.sentence_unprocessing_mapping_file = os.path.join(self.cache_dir, f"{dataset_name}_{split}_sentence_unprocessing_map.json")
+        split_str = f"_{split}" if split else ""
+        self.sentence_unprocessing_mapping_file = os.path.join(self.cache_dir, f"{dataset_name}{split_str}_sentence_unprocessing_map.json")
 
     def process_sentence_punctuation(self, sentences):
         processed_sentence_set = []
@@ -61,6 +62,27 @@ class GPTExpansionClustering(KMeans):
             "alternate names, while others will have alternate names not directly " + \
             "mentioned in the context sentences. Generate a comprehensive set of " + \
             "alternate entity names as a JSON-formatted list."
+        elif self.dataset_name == "tweet":
+            instruction = f"I am trying to cluster tweets based on whether " + \
+            "they discuss the same topic. To do this, given a (stopword-removed) tweet, please " + \
+            "provide a comprehensive set of keywords or keyphrases that could describe this tweet's " + \
+            "topic. These keywords should be distinct from those that might describe tweets with different " + \
+            "topics. Since the tweets already look like keywords, feel free to include keywords not listed " + \
+            "in the tweet, and don't feel like you need to include very many of the original words from the " + \
+            "tweet. Generate a comprehensive set of keyphrases as a JSON-formatted list."
+        elif self.dataset_name == "clinc":
+            instruction = f"I am trying to cluster task-oriented dialog system queries based on " + \
+            "whether they express the same general user intent. To help me with this, " + \
+            "for a given user query, provide a comprehensive set of keywords that could describe " + \
+            "this query's intent. These keywords should be distinct from those that might describe " + \
+            "queries with different intents. Generate the set of keyphrases as a JSON-formatted list."
+        elif self.dataset_name == "bank77":
+            instruction = f"I am trying to cluster queries for a online banking system based " + \
+            "on whether they express the same general user intent. To help me with this, " + \
+            "for a given banking query, provide a comprehensive set of keywords that could describe " + \
+            "this query's intent. These keywords should be distinct from those that might describe " + \
+            "banking-related queries with different intents. Generate " + \
+            "the set of keyphrases as a JSON-formatted list."
         else:
             raise NotImplementedError
         return instruction
@@ -70,7 +92,7 @@ class GPTExpansionClustering(KMeans):
         context_labels = ["1", "2", "3", "4"]
         return "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(selected_sentences[entity_idx])])
 
-    def create_template_block(self, entity_name, selected_sentences, complete_block=True):
+    def create_template_block_entity_canonicalization(self, entity_name, selected_sentences, complete_block=True):
         entity_idx = self.side_information.side_info.ent2id[entity_name]
         if complete_block:
             entity_expansions = self.expand_entity(entity_name)
@@ -87,11 +109,28 @@ Context Sentences:\n{self.construct_context_sentences(entity_idx, selected_sente
 Alternate Entity Names: {expansion_text}"""
         return filled_template
 
-    def get_gpt3_prefix(self, demonstration_entities, selected_sentences):
+    def create_template_block_text_clustering(self, sentence, text_type, keywords, complete_block=True):
+        if complete_block:
+            keywords_str = json.dumps(keywords)
+        else:
+            keywords_str = ""
+        filled_template = f"""{text_type}: "{sentence}"
+
+Keywords: {keywords_str}"""
+        return filled_template
+
+    def get_gpt3_prefix_entity_canonicalization(self, demonstration_entities, selected_sentences):
         instruction = self.get_instruction()
         prefix = instruction
-        # demonstration_blocks = [self.create_template_block(entity_name, selected_sentences, complete_block=True) for entity_name in demonstration_entities]
-        # prefix = instruction + "\n\n" + "\n\n".join(demonstration_blocks)
+        demonstration_blocks = [self.create_template_block_entity_canonicalization(entity_name, selected_sentences, complete_block=True) for entity_name in demonstration_entities]
+        prefix = instruction + "\n\n" + "\n\n".join(demonstration_blocks)
+        return prefix
+
+    def get_gpt3_prefix_text_clustering(self, sentences, text_type, all_keywords):
+        instruction = self.get_instruction()
+        prefix = instruction
+        demonstration_blocks = [self.create_template_block_text_clustering(sentence, text_type, keywords, complete_block=True) for sentence, keywords in zip(sentences, all_keywords)]
+        prefix = instruction + "\n\n" + "\n\n".join(demonstration_blocks)
         return prefix
 
     def expand_entity(self, entity_name):
@@ -101,41 +140,101 @@ Alternate Entity Names: {expansion_text}"""
         entity_expansions = [self.side_information.side_info.id2ent[entity_idx] for entity_idx in gt_coclustered_entity_idxs]
         return entity_expansions
 
-    def construct_gpt3_template(self, entity_name, selected_sentences):
+    def construct_gpt3_template(self, entity_name, selected_sentences, gt_keywords=None):
         if self.dataset_name == "OPIEC59k":
-            prompt_prefix = self.get_gpt3_prefix(["fictional character", "Catholicism", "Wind", "Elizabeth"], selected_sentences)
+            prompt_prefix = self.get_gpt3_prefix_entity_canonicalization(["fictional character", "Catholicism", "Wind", "Elizabeth"], selected_sentences)
         elif self.dataset_name == "reverb45k":
-            prompt_prefix = self.get_gpt3_prefix(["Hank Aaron", "Apple", "Jason", "Insomniac Games"], selected_sentences)
+            prompt_prefix = self.get_gpt3_prefix_entity_canonicalization(["Hank Aaron", "Apple", "Jason", "Insomniac Games"], selected_sentences)
         else:
-            raise NotImplementedError
-        completion_block = self.create_template_block(entity_name, selected_sentences, complete_block=False)
+            if self.dataset_name == "tweet":
+                text_type = "Tweet"
+                sentences = [
+                    "brain fluid buildup delay giffords rehab",
+                    "trailer talk week movie rite mechanic week opportunity",
+                    "gbagbo camp futile cut ivory coast economy",
+                    "chicken cavatelli soup"
+                ]
+                keywords = [
+                    ["gabrielle giffords", "giffords recovery"],
+                    ["movies", "in theaters", "trailer talk"],
+                    ["gbagbo", "ivory coast"],
+                    ["cooking", "tasty recipes"]
+                ]
+                prompt_prefix = self.get_gpt3_prefix_text_clustering(sentences, text_type, keywords)      
+            elif self.dataset_name == "clinc":
+                text_type = "Query"
+                sentences = [
+                    "how would you say fly in italian",
+                    "what does assiduous mean",
+                    "find my cellphone for me!"
+                ]
+                keywords = [
+                    ["translation", "translate"],
+                    ["definition", "define"],
+                    ["location", "find", "locate", "tracking", "track"],
+                ]
+                prompt_prefix = self.get_gpt3_prefix_text_clustering(sentences, text_type, keywords)      
+            elif self.dataset_name == "bank77":
+                text_type = "Query"
+                sentences = [
+                    "How do I locate my card?",
+                    "Whats the delivery time to the United States?",
+                    "Can you cancel my purchase?",
+                    "Why don't I have my transfer?"]
+                keywords = [
+                    ["card status", "status update", "card location"],
+                    ["delivery time", "ETA", "card delivery"],
+                    ["cancel purchase", "refund"],
+                    ["transfer", "transfer failed"]
+                ]
+                prompt_prefix = self.get_gpt3_prefix_text_clustering(sentences, text_type, keywords)     
+            else:
+                raise NotImplementedError
+
+        if self.dataset_name == "OPIEC59k" or self.dataset_name == "reverb45k":
+            completion_block = self.create_template_block_entity_canonicalization(entity_name, selected_sentences, complete_block=False)
+        else:
+            sentence = entity_name
+            if self.dataset_name == "tweet":
+                text_type = "Tweet"      
+            elif self.dataset_name == "clinc":
+                text_type = "Query"
+            elif self.dataset_name == "bank77":
+                text_type = "Query"
+            completion_block = self.create_template_block_text_clustering(sentence, text_type, None, complete_block=False)
         return f"{prompt_prefix}\n\n{completion_block}"
 
 
     def fit(self, X, y=None, ml=[], cl=[]):
 
-        side_info = self.side_information.side_info
         ents = []
         sentence_idxs = []
         sentences = []
         selected_sentences = []
-        ents = []
 
-        sentence_unprocessing_mapping = json.load(open(self.sentence_unprocessing_mapping_file))
+        if self.dataset_name == "OPIEC59k" or self.dataset_name == "reverb45k":
+            sentence_unprocessing_mapping = json.load(open(self.sentence_unprocessing_mapping_file))
+        else:
+            sentence_unprocessing_mapping = None
 
         for i in range(len(X)):
-            ents.append(side_info.id2ent[i])
-            entity_sentence_idxs = side_info.ent_id2sentence_list[i]
-            unprocessed_sentences = [sentence_unprocessing_mapping[side_info.sentence_List[j]] for j in entity_sentence_idxs]
-            entity_sentences = self.process_sentence_punctuation(unprocessed_sentences)
-            entity_sentences_dedup = list(set(entity_sentences))
+            if self.dataset_name == "OPIEC59k" or self.dataset_name == "reverb45k":
+                ents.append(self.side_information.side_info.id2ent[i])
+                entity_sentence_idxs = self.side_information.side_info.ent_id2sentence_list[i]
+                unprocessed_sentences = [sentence_unprocessing_mapping[self.side_information.side_info.sentence_List[j]] for j in entity_sentence_idxs]
+                entity_sentences = self.process_sentence_punctuation(unprocessed_sentences)
+                entity_sentences_dedup = list(set(entity_sentences))
 
-            '''
-            Choose longest sentence under 306 characers, as in
-            https://github.com/Yang233666/cmvc/blob/6e752b1aa5db7ff99eb2fa73476e392a00b0b89a/Context_view.py#L98
-            '''
-            longest_sentences = sorted([s for s in entity_sentences_dedup if len(s) < 599], key=len)
-            selected_sentences.append(longest_sentences[:3])
+                '''
+                Choose longest sentence under 306 characers, as in
+                https://github.com/Yang233666/cmvc/blob/6e752b1aa5db7ff99eb2fa73476e392a00b0b89a/Context_view.py#L98
+                '''
+                longest_sentences = sorted([s for s in entity_sentences_dedup if len(s) < 599], key=len)
+                selected_sentences.append(longest_sentences[:3])
+            else:
+                ents.append(self.side_information[i])
+                selected_sentences.append(self.side_information[i])
+
 
 
         entity_expansion_mapping = {}
@@ -194,18 +293,22 @@ Alternate Entity Names: {expansion_text}"""
         for ent, expansions in entity_expansion_mapping.items():
             entity_lowercase = ent.lower()
             expanded_lowercase = [r.lower() for r in expansions]
-            entity_expansions_lowercase[ent] =  set([entity_lowercase] + expanded_lowercase)
+            entity_expansions_lowercase[ent] = set(expanded_lowercase)
+            #entity_expansions_lowercase[ent] =  set([entity_lowercase] + expanded_lowercase)
         for ent in ents:
             if ent not in entity_expansions_lowercase:
                 entity_expansions_lowercase[ent] = set([ent.lower()])
 
         clusters = [[ents[0]]]
+        cluster_keywords = [set(entity_expansions_lowercase[ents[0]])]
         for ent in ents[1:]:
             any_cluster_match = None
             for clust_idx, cluster in enumerate(clusters):
                 cluster_match = False
                 for candidate_ent in cluster:
                     if len(entity_expansions_lowercase[ent].intersection(entity_expansions_lowercase[candidate_ent])) > 0:
+                    # jaccard_similarity = len(entity_expansions_lowercase[ent].intersection(entity_expansions_lowercase[candidate_ent])) / len(entity_expansions_lowercase[ent].union(entity_expansions_lowercase[candidate_ent]))
+                    # if jaccard_similarity > 0.3:
                         cluster_match = True
                         break
                 if cluster_match:
@@ -213,8 +316,16 @@ Alternate Entity Names: {expansion_text}"""
                     break
             if any_cluster_match is not None:
                 clusters[any_cluster_match].append(ent)
+                cluster_keywords[any_cluster_match].update(entity_expansions_lowercase[ent])
             else:
                 clusters.append([ent])
+                cluster_keywords.append(set(entity_expansions_lowercase[ent]))
+
+        clusters_and_keywords = []
+        for (single_cluster_ents, single_cluster_keywords) in zip(clusters, cluster_keywords):
+            clusters_and_keywords.append((list(single_cluster_ents), list(single_cluster_keywords)))
+
+        clusters_and_keywords = sorted(clusters_and_keywords, key=lambda k: len(k[0]))
 
         # post process clusters
 
@@ -223,5 +334,9 @@ Alternate Entity Names: {expansion_text}"""
         for clust_idx, cluster in enumerate(clusters):
             for ent in cluster:
                 ent_to_cluster_idx[ent] = clust_idx
-        self.labels_ = [ent_to_cluster_idx[side_info.id2ent[idx]] for idx in range(len(X))]
+        if isinstance(self.side_information, list):
+            self.labels_ = [ent_to_cluster_idx[self.side_information[idx]] for idx in range(len(X))]
+            breakpoint()
+        else:
+            self.labels_ = [ent_to_cluster_idx[self.side_information.side_info.id2ent[idx]] for idx in range(len(X))]
         return self

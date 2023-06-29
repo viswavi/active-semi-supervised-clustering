@@ -61,6 +61,46 @@ def preprocess_constraints(ml, cl, n):
                 if x not in ml_graph[y] and y not in ml_graph[x]:
                     add_both(cl_graph, x, y)
 
+    _ = """
+    for (i, j) in tqdm(cl[:150]):
+        timer1 = time.perf_counter()
+        for x in ml_graph[i]:
+            timer1_2 = time.perf_counter()
+            if x not in ml_graph[j] and j not in ml_graph[x]:
+                timer1_3 = time.perf_counter()
+                timer_dict["check_ml"] += timer1_3 - timer1_2
+                add_both(cl_graph, x, j)
+                timer_dict["add_both_cl"] += time.perf_counter() - timer1_3
+        timer2 = time.perf_counter()
+        for y in ml_graph[j]:
+            timer2_2 = time.perf_counter()
+            if y not in ml_graph[i] and i not in ml_graph[y]:
+                timer2_3 = time.perf_counter()
+                timer_dict["check_ml"] += timer2_3 - timer2_2
+                add_both(cl_graph, i, y)
+                timer_dict["add_both_cl"] += time.perf_counter() - timer2_3
+        timer3 = time.perf_counter()
+        for x in ml_graph[i]:
+            for y in ml_graph[j]:
+                timer3_2 = time.perf_counter()
+                if x not in ml_graph[y] and y not in ml_graph[x]:
+                    timer3_3 = time.perf_counter()
+                    timer_dict["check_ml"] += timer3_3 - timer3_2
+                    add_both(cl_graph, x, y)
+                    timer_dict["add_both_cl"] += time.perf_counter() - timer3_3
+        timer4 = time.perf_counter()
+        timer_dict["head_ml_expansion"] += timer2 - timer1
+        timer_dict["tail_ml_expansion"] += timer3 - timer2
+        timer_dict["both_sides_expansion"] += timer4 - timer3
+
+    timer_dict = {"add_both_cl": 0.0,
+                    "check_ml": 0.0,
+                    "head_ml_expansion": 0.0,
+                    "tail_ml_expansion": 0.0,
+                    "both_sides_expansion": 0.0}    
+
+    """
+
     for i in ml_graph:
         for j in ml_graph[i]:
             if j != i and j in cl_graph[i]:

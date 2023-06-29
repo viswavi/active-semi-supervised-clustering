@@ -9,7 +9,7 @@ import openai
 from .example_oracle import MaximumQueriesExceeded
 
 class GPT3ComparativeOracle:
-    def __init__(self, X, labels, dataset_name, split=None, max_queries_cnt=2500, num_predictions=5, side_information=None, read_only=False):
+    def __init__(self, X, labels, dataset_name, split=None, max_queries_cnt=2500, num_predictions=5, side_information=None, read_only=True):
         self.labels = labels
         self.queries_cnt = 0
         self.max_queries_cnt = max_queries_cnt
@@ -156,6 +156,8 @@ Your task will be considered successful if the entities are clustered into group
 
             if  triplet in self.gpt3_triplet_labels:
                 return self.filter_high_entropy_predictions(self.gpt3_triplet_labels[triplet])
+            elif self.read_only is True:
+                return None
 
             prompt, context1, context2, context3 = self.construct_pairwise_oracle_prompt(i, j, k)
             print("PROMPT:\n" + prompt)

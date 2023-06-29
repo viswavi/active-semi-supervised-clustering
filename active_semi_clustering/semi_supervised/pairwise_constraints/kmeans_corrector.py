@@ -52,25 +52,27 @@ class KMeansCorrection:
         try:
             for i, ent_idx in tqdm(enumerate(closest_top_two)):
                 top_clust = ambiguous_points_top_five_clust_idxs[i][0]
-
+                top_cluster_rep_points = representative_points[top_clust]
+                top_cluster_bad = False
+                for top_cluster_rep in top_cluster_rep_points:
+                    top_cluster_class = oracle.query(ent_idx, top_cluster_rep)
+                    num_queries += 1
+                    if top_cluster_class is False:
+                        top_cluster_bad = True
+                        break
                 for next_best_clust in ambiguous_points_top_five_clust_idxs[i][1:]:
-                    new_class_is_better = False
-                    local_num_queries = 0
-                    better_counts = 0
-                    for top_cluster_rep_point in representative_points[top_clust][:2]:
-                        for next_best_cluster_rep_point in representative_points[next_best_clust][:2]:
-                            new_class_is_better = oracle.query(ent_idx, (next_best_cluster_rep_point, top_cluster_rep_point))
-                            num_queries += 1
-                            local_num_queries += 1
-                            if new_class_is_better:
-                                better_counts += 1
-                    if better_counts / local_num_queries >= 0.5:
-                        try:
-                            corrected_labels[ent_idx] = next_best_clust
-                        except:
-                            breakpoint()
-                        top_clust = next_best_clust
-
+                    next_best_cluster_rep_points = representative_points[next_best_clust]
+                    make_correction = False
+                    for next_best_cluster_rep in next_best_cluster_rep_points:
+                        next_cluster_class = oracle.query(ent_idx, next_best_cluster_rep) 
+                        num_queries += 1
+                        if top_cluster_bad and next_cluster_class is True:
+                            make_correction = True
+                            break
+                    if make_correction == True:
+                        num_corrections_made += 1
+                        corrected_labels[ent_idx] = next_best_clust
+                        break
         except MaximumQueriesExceeded:
             pass
 
