@@ -72,7 +72,6 @@ class GPT3Oracle:
         self.read_only = read_only
 
         if not isinstance(self.side_information, list):
-            breakpoint()
             side_info = self.side_information.side_info
             self.sentence_unprocessing_mapping_file = os.path.join(self.cache_dir, f"{dataset_name}_{split}_sentence_unprocessing_map.json")
             sentence_unprocessing_mapping = json.load(open(self.sentence_unprocessing_mapping_file))
@@ -247,7 +246,6 @@ Your task will be considered successful if the queries are clustered into groups
             return None
 
     def query(self, i, j):
-        print(f"Querying {i} and {j}")
         if self.queries_cnt < self.max_queries_cnt:
             self.queries_cnt += 1
             sorted_pair_list = sorted([self.ents[i], self.ents[j]])
@@ -259,6 +257,7 @@ Your task will be considered successful if the queries are clustered into groups
             prompt, context1, context2 = self.construct_pairwise_oracle_prompt(i, j)
             print("PROMPT:\n" + prompt)
 
+
             pair_labels_not_none = []
 
             failure = True
@@ -267,7 +266,6 @@ Your task will be considered successful if the queries are clustered into groups
                 cache_row = None
                 try:
                     start = time.perf_counter()
-                    print(f"Querying {self.ents[i]} and {self.ents[j]}...")
                     response = call_chatgpt(prompt, self.num_predictions, temperature=1.0, max_tokens=1, timeout=2.0)
                     print(f"response took {round(time.perf_counter()-start, 2)} seconds")
 

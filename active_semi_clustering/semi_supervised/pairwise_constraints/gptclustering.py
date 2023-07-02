@@ -4,30 +4,49 @@ import jsonlines
 import numpy as np
 import openai
 import os
+from sklearn.preprocessing import normalize
 import time
 from tqdm import tqdm
+
 
 from active_semi_clustering.exceptions import EmptyClustersException
 from .constraints import preprocess_constraints
 from active_semi_clustering.semi_supervised.labeled_data.kmeans import KMeans
 from active_semi_clustering.semi_supervised.pairwise_constraints.pckmeans import PCKMeans
+from InstructorEmbedding import INSTRUCTOR
+from sentence_transformers import SentenceTransformer
+
+import sys
+sys.path.append("cmvc")
+from cmvc.helper import invertDic
+from cmvc.metrics import pairwiseMetric, calcF1
+from cmvc.test_performance import cluster_test
 
 class GPTExpansionClustering(KMeans):
-    def __init__(self, dataset_name, labels, split=None, n_clusters=3, side_information=None, read_only=False, cache_file_name="gpt_paraphrase_cache.jsonl"):
+    def __init__(self, X, dataset_name, labels, split=None, n_clusters=3, side_information=None, read_only=False, instruction_only=False, demonstration_only=False, cache_file_name="gpt_paraphrase_cache.jsonl"):
+        self.X = X
         self.dataset_name = dataset_name
         self.labels = labels
         self.n_clusters = n_clusters
         self.side_information = side_information
         self.cache_dir = "/projects/ogma1/vijayv/okb-canonicalization/clustering/file/gpt3_cache"
-        self.cache_file = os.path.join(self.cache_dir, cache_file_name)
-        if os.path.exists(self.cache_file):
-            self.cache_rows = list(jsonlines.open(self.cache_file))
+        cache_file = os.path.join(self.cache_dir, cache_file_name)
+        self.instruction_only = instruction_only
+        self.demonstration_only = demonstration_only
+        if instruction_only:
+            filename_components = cache_file.split("_cache.jsonl")
+            cache_file = filename_components[0] + f"_instruction_only" + "_cache.jsonl"
+        elif demonstration_only:
+            filename_components = cache_file.split("_cache.jsonl")
+            cache_file = filename_components[0] + f"_demonstration_only" + "_cache.jsonl"
+        if os.path.exists(cache_file):
+            self.cache_rows = list(jsonlines.open(cache_file))
         else:
             self.cache_rows = []
         if not read_only:
-            self.cache_writer = jsonlines.open(self.cache_file, mode='a', flush=True)
+            self.cache_writer = jsonlines.open(cache_file, mode='a', flush=True)
         else:
-            self.cache_writer = jsonlines.open(self.cache_file, mode='r')
+            self.cache_writer = jsonlines.open(cache_file, mode='r')
         self.NUM_RETRIES = 1
         self.read_only = read_only
 
@@ -119,18 +138,26 @@ Alternate Entity Names: {expansion_text}"""
 Keywords: {keywords_str}"""
         return filled_template
 
-    def get_gpt3_prefix_entity_canonicalization(self, demonstration_entities, selected_sentences):
+    def get_gpt3_prefix_entity_canonicalization(self, demonstration_entities, selected_sentences, instruction_only=False, demonstration_only=False):
         instruction = self.get_instruction()
         prefix = instruction
         demonstration_blocks = [self.create_template_block_entity_canonicalization(entity_name, selected_sentences, complete_block=True) for entity_name in demonstration_entities]
         prefix = instruction + "\n\n" + "\n\n".join(demonstration_blocks)
+        if instruction_only:
+            return instruction
+        if demonstration_only:
+            return "\n\n".join(demonstration_blocks)
         return prefix
 
-    def get_gpt3_prefix_text_clustering(self, sentences, text_type, all_keywords):
+    def get_gpt3_prefix_text_clustering(self, sentences, text_type, all_keywords, instruction_only=False, demonstration_only=False):
         instruction = self.get_instruction()
         prefix = instruction
         demonstration_blocks = [self.create_template_block_text_clustering(sentence, text_type, keywords, complete_block=True) for sentence, keywords in zip(sentences, all_keywords)]
         prefix = instruction + "\n\n" + "\n\n".join(demonstration_blocks)
+        if instruction_only:
+            return instruction
+        if demonstration_only:
+            return "\n\n".join(demonstration_blocks)
         return prefix
 
     def expand_entity(self, entity_name):
@@ -140,11 +167,11 @@ Keywords: {keywords_str}"""
         entity_expansions = [self.side_information.side_info.id2ent[entity_idx] for entity_idx in gt_coclustered_entity_idxs]
         return entity_expansions
 
-    def construct_gpt3_template(self, entity_name, selected_sentences, gt_keywords=None):
+    def construct_gpt3_template(self, entity_name, selected_sentences, gt_keywords=None, instruction_only=False, demonstration_only=False):
         if self.dataset_name == "OPIEC59k":
-            prompt_prefix = self.get_gpt3_prefix_entity_canonicalization(["fictional character", "Catholicism", "Wind", "Elizabeth"], selected_sentences)
+            prompt_prefix = self.get_gpt3_prefix_entity_canonicalization(["fictional character", "Catholicism", "Wind", "Elizabeth"], selected_sentences, instruction_only=instruction_only, demonstration_only=demonstration_only)
         elif self.dataset_name == "reverb45k":
-            prompt_prefix = self.get_gpt3_prefix_entity_canonicalization(["Hank Aaron", "Apple", "Jason", "Insomniac Games"], selected_sentences)
+            prompt_prefix = self.get_gpt3_prefix_entity_canonicalization(["Hank Aaron", "Apple", "Jason", "Insomniac Games"], selected_sentences, instruction_only=instruction_only, demonstration_only=demonstration_only)
         else:
             if self.dataset_name == "tweet":
                 text_type = "Tweet"
@@ -160,7 +187,7 @@ Keywords: {keywords_str}"""
                     ["gbagbo", "ivory coast"],
                     ["cooking", "tasty recipes"]
                 ]
-                prompt_prefix = self.get_gpt3_prefix_text_clustering(sentences, text_type, keywords)      
+                prompt_prefix = self.get_gpt3_prefix_text_clustering(sentences, text_type, keywords, instruction_only=instruction_only, demonstration_only=demonstration_only)      
             elif self.dataset_name == "clinc":
                 text_type = "Query"
                 sentences = [
@@ -173,7 +200,7 @@ Keywords: {keywords_str}"""
                     ["definition", "define"],
                     ["location", "find", "locate", "tracking", "track"],
                 ]
-                prompt_prefix = self.get_gpt3_prefix_text_clustering(sentences, text_type, keywords)      
+                prompt_prefix = self.get_gpt3_prefix_text_clustering(sentences, text_type, keywords, instruction_only=instruction_only, demonstration_only=demonstration_only)      
             elif self.dataset_name == "bank77":
                 text_type = "Query"
                 sentences = [
@@ -187,7 +214,7 @@ Keywords: {keywords_str}"""
                     ["cancel purchase", "refund"],
                     ["transfer", "transfer failed"]
                 ]
-                prompt_prefix = self.get_gpt3_prefix_text_clustering(sentences, text_type, keywords)     
+                prompt_prefix = self.get_gpt3_prefix_text_clustering(sentences, text_type, keywords, instruction_only=instruction_only, demonstration_only=demonstration_only)     
             else:
                 raise NotImplementedError
 
@@ -204,6 +231,22 @@ Keywords: {keywords_str}"""
             completion_block = self.create_template_block_text_clustering(sentence, text_type, None, complete_block=False)
         return f"{prompt_prefix}\n\n{completion_block}"
 
+
+    def evaluate(self):
+        ave_prec, ave_recall, ave_f1, macro_prec, micro_prec, pair_prec, macro_recall, micro_recall, pair_recall, macro_f1, micro_f1, pairwise_f1, model_clusters, model_Singletons, gold_clusters, gold_Singletons  = cluster_test(self.side_information.p, self.side_information.side_info, self.labels_, self.side_information.true_ent2clust, self.side_information.true_clust2ent)
+        metrics_dict = {"ave_prec": ave_prec,
+                        "ave_recall": ave_recall,
+                        "ave_f1": ave_f1,
+                        "macro_prec": macro_prec,
+                        "micro_prec": micro_prec,
+                        "pair_prec": pair_prec,
+                        "macro_recall": macro_recall,
+                        "micro_recall": micro_recall,
+                        "pair_recall": pair_recall,
+                        "macro_f1": macro_f1,
+                        "micro_f1": micro_f1,
+                        "pairwise_f1": pairwise_f1}
+        return ave_f1, macro_f1, micro_f1, pairwise_f1, metrics_dict
 
     def fit(self, X, y=None, ml=[], cl=[]):
 
@@ -231,9 +274,11 @@ Keywords: {keywords_str}"""
                 '''
                 longest_sentences = sorted([s for s in entity_sentences_dedup if len(s) < 599], key=len)
                 selected_sentences.append(longest_sentences[:3])
+                sentences.append(longest_sentences[0])
             else:
                 ents.append(self.side_information[i])
                 selected_sentences.append(self.side_information[i])
+                sentences.append(self.side_information[i])
 
 
 
@@ -245,7 +290,7 @@ Keywords: {keywords_str}"""
             if entity not in entity_expansion_mapping:
                 if self.read_only:
                     continue
-                template_to_fill = self.construct_gpt3_template(entity, selected_sentences)
+                template_to_fill = self.construct_gpt3_template(entity, selected_sentences, instruction_only=self.instruction_only, demonstration_only=self.demonstration_only)
                 print(f"PROMPT:\n{template_to_fill}")
 
                 failure = True
@@ -261,9 +306,13 @@ Keywords: {keywords_str}"""
                             ],
                         )
                         message = json.loads(str(response.choices[0]))["message"]["content"]
+                        if message.startswith("Keywords:"):
+                            message = message[len("Keywords:"):].strip()
                         try:
                             entity_expansions = json.loads(message)
                             print(message)
+                            if not isinstance(entity_expansions, list) or not isinstance(entity_expansions[0], str):
+                                failure = True
                             entity_expansion_mapping[entity] = entity_expansions
                             cache_row = {"entity": entity, "expansion": entity_expansions}
                             self.cache_writer.write(cache_row)
@@ -289,26 +338,57 @@ Keywords: {keywords_str}"""
         _ = cluster_idx_to_entities[entity_to_cluster_idx["Wind"]]
         """
 
+
         entity_expansions_lowercase = {}
+        all_keywords = set()
         for ent, expansions in entity_expansion_mapping.items():
-            entity_lowercase = ent.lower()
+            _ = """
+            entity_lowercase = ent.lower().split()
             expanded_lowercase = [r.lower() for r in expansions]
-            entity_expansions_lowercase[ent] = set(expanded_lowercase)
-            #entity_expansions_lowercase[ent] =  set([entity_lowercase] + expanded_lowercase)
+            expanded_lowercase = [e for r in expansions for e in r.lower().split()]
+            # entity_expansions_lowercase[ent] = set(expanded_lowercase)
+            entity_expansions_lowercase[ent] = set(entity_lowercase + expanded_lowercase)
+            """
+            entity_lowercase = ent.lower()
+            try:
+                expanded_lowercase = [r.lower() for r in expansions]
+            except:
+                breakpoint()
+            # entity_expansions_lowercase[ent] = set(expanded_lowercase)
+            entity_expansions_lowercase[ent] = set([entity_lowercase] + expanded_lowercase)
+            all_keywords.update(entity_expansions_lowercase[ent])
+
         for ent in ents:
             if ent not in entity_expansions_lowercase:
+                # entity_expansions_lowercase[ent] = set(ent.lower().split())
                 entity_expansions_lowercase[ent] = set([ent.lower()])
 
-        clusters = [[ents[0]]]
-        cluster_keywords = [set(entity_expansions_lowercase[ents[0]])]
-        for ent in ents[1:]:
+        _ = """
+        all_keywords = []
+        for ent in ents:
+            all_keywords.extend(list(entity_expansions_lowercase[ent]))
+
+        keyword_counts = Counter(all_keywords)
+        most_common_keywords = [k for k,v in keyword_counts.items() if v > (len(ents) // self.n_clusters)]
+        
+        for ent in entity_expansions_lowercase:
+            for common_keyword in most_common_keywords:
+                if common_keyword in entity_expansions_lowercase[ent]:
+                    entity_expansions_lowercase[ent].remove(common_keyword)
+        """
+
+        ents_sorted = sorted(ents, key=lambda e: len(entity_expansions_lowercase[e]), reverse=True)
+
+        clusters = [[ents_sorted[0]]]
+        cluster_keywords = [set(entity_expansions_lowercase[ents_sorted[0]])]
+        for ent in ents_sorted[1:]:
             any_cluster_match = None
             for clust_idx, cluster in enumerate(clusters):
                 cluster_match = False
                 for candidate_ent in cluster:
-                    if len(entity_expansions_lowercase[ent].intersection(entity_expansions_lowercase[candidate_ent])) > 0:
-                    # jaccard_similarity = len(entity_expansions_lowercase[ent].intersection(entity_expansions_lowercase[candidate_ent])) / len(entity_expansions_lowercase[ent].union(entity_expansions_lowercase[candidate_ent]))
-                    # if jaccard_similarity > 0.3:
+                    # if len(entity_expansions_lowercase[ent].intersection(entity_expansions_lowercase[candidate_ent])) > 0:
+                    jaccard_similarity = len(entity_expansions_lowercase[ent].intersection(entity_expansions_lowercase[candidate_ent])) / len(entity_expansions_lowercase[ent].union(entity_expansions_lowercase[candidate_ent]))
+                    if jaccard_similarity > 0:
                         cluster_match = True
                         break
                 if cluster_match:
@@ -336,7 +416,61 @@ Keywords: {keywords_str}"""
                 ent_to_cluster_idx[ent] = clust_idx
         if isinstance(self.side_information, list):
             self.labels_ = [ent_to_cluster_idx[self.side_information[idx]] for idx in range(len(X))]
-            breakpoint()
         else:
             self.labels_ = [ent_to_cluster_idx[self.side_information.side_info.id2ent[idx]] for idx in range(len(X))]
+
+
+
+        all_expansions = []
+        for ent in ents:
+            if self.dataset_name == "OPIEC59k" or self.dataset_name == "reverb45k":
+                ent_expansions = [ent]
+            else:
+                ent_expansions = []
+            if ent in entity_expansion_mapping:
+                ent_expansions.extend(entity_expansion_mapping[ent])
+            try:
+                all_expansions.append(", ".join(ent_expansions))
+            except:
+                breakpoint()
+
+        _ = """
+        if self.dataset_name == "OPIEC59k" or self.dataset_name == "reverb45k"  or self.dataset_name == "tweet" or self.dataset_name == "bank77":
+            model = SentenceTransformer('sentence-transformers/distilbert-base-nli-stsb-mean-tokens')
+            embeddings = model.encode(list(all_keywords))
+        elif self.dataset_name == "bank77":
+            model = INSTRUCTOR('hkunlp/instructor-large')
+            prompt = "Represent the bank purpose for intent classification: "
+            embeddings = model.encode([[prompt, text] for text in all_keywords])
+
+        keyword_to_embedding = dict(zip(list(all_keywords), embeddings))
+        ent_multi_keyword_embeddings = [[keyword_to_embedding[e] for e in entity_expansions_lowercase[ent]] for ent in ents]
+        ent_keyword_embeddings = np.stack([np.mean(vecs, axis=0) for vecs in ent_multi_keyword_embeddings])
+        """
+
+
+        if self.dataset_name == "OPIEC59k" or self.dataset_name == "reverb45k"  or self.dataset_name == "tweet":
+            model = SentenceTransformer('sentence-transformers/distilbert-base-nli-stsb-mean-tokens')
+            ent_embeddings = model.encode(ents)
+            expansion_embeddings = model.encode(all_expansions)
+        elif self.dataset_name == "bank77":
+            model = INSTRUCTOR('hkunlp/instructor-large')
+            prompt = "Represent the bank purpose for intent classification: "
+            ent_embeddings = model.encode([[prompt, ent] for ent in ents])
+            expansion_embeddings = model.encode([[prompt, text] for text in all_expansions])
+        elif self.dataset_name == "clinc":
+            model = INSTRUCTOR('hkunlp/instructor-large')
+            prompt = "Represent keyphrases for topic classification: "
+            ent_embeddings = model.encode([[prompt, ent] for ent in ents])
+            expansion_embeddings = model.encode([[prompt, text] for text in all_expansions])
+        else:
+            raise ValueError(f"Dataset {self.dataset_name} not found")
+
+        a_vectors = normalize(self.X, axis=1, norm="l2")
+        b_vectors = normalize(expansion_embeddings, axis=1, norm="l2")
+        embeddings = np.concatenate([a_vectors, b_vectors], axis=1)
+
+        kmeans = KMeans(self.n_clusters, max_iter=100, init="k-means++", normalize_vectors=True, split_normalization=True, split_point=np.shape(self.X)[1])
+        kmeans.fit(embeddings)
+        self.labels_ = [int(l) for l in kmeans.labels_]
         return self
