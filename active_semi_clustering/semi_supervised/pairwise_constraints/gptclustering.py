@@ -29,7 +29,7 @@ class GPTExpansionClustering(KMeans):
         self.labels = labels
         self.n_clusters = n_clusters
         self.side_information = side_information
-        self.cache_dir = "/projects/ogma1/vijayv/okb-canonicalization/clustering/file/gpt3_cache"
+        self.cache_dir = "/projects/ogma2/users/vijayv/extra_storage/okb-canonicalization/clustering/file/gpt3_cache"
         cache_file = os.path.join(self.cache_dir, cache_file_name)
         self.instruction_only = instruction_only
         self.demonstration_only = demonstration_only

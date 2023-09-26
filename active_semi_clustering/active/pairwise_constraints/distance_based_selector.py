@@ -30,8 +30,6 @@ class DistanceBasedSelector:
 
         X_normalized = np.hstack([normalize(X[:, :300], axis=1, norm="l2"), normalize(X[:, 300:], axis=1, norm="l2")])
 
-        labels = oracle.labels
-
         ml = []
         cl = []
 
@@ -49,8 +47,11 @@ class DistanceBasedSelector:
         matrix_sort_indices = []
         for ind in flattened_matrix_sort_indices_unfiltered:
             (x,y) = (ind // len(X_normalized), ind % len(X_normalized))
-            if x < y and oracle.selected_sentences[x] != oracle.selected_sentences[y]:
-                matrix_sort_indices.append((x,y))
+            try:
+                if x < y and oracle.documents[x] != oracle.documents[y]:
+                    matrix_sort_indices.append((x,y))
+            except:
+                breakpoint()
         print("5")
 
         print(f"Pseudo-labeling constraints")

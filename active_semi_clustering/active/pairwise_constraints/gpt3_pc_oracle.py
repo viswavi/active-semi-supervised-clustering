@@ -50,7 +50,7 @@ def call_chatgpt(prompt, num_predictions, temperature=1.0, max_tokens=1, timeout
 
 
 
-def construct_pairwise_oracle_single_example(document_i, document_j, label, dataset_name, prompt_suffix = None, text_type = "None", add_label=True):
+def construct_pairwise_oracle_single_example(document_i, document_j, label, dataset_name, prompt_suffix = None, text_type = None, add_label=True):
     if prompt_suffix is None:
         if dataset_name == "OPIEC59k":
             prompt_suffix = "link to the same entity's article on Wikipedia? "
@@ -89,12 +89,16 @@ Given this context, do {text_type.lower()} #1 and {text_type.lower()} #2 likely 
     return full_example
 
 class GPT3Oracle:
-    def __init__(self, X, prompt, cache_file_name=None, max_queries_cnt=2500, num_predictions=5, read_only=False):
+    def __init__(self, X, prompt, documents, dataset_name=None, prompt_suffix=None, text_type=None, cache_file=None, max_queries_cnt=2500, num_predictions=5, read_only=False):
         self.queries_cnt = 0
         self.max_queries_cnt = max_queries_cnt
         self.num_predictions = num_predictions
+        self.documents = documents
+        self.dataset_name = dataset_name
+        self.prompt_suffix = prompt_suffix
+        self.text_type = text_type
 
-        self.cache_file = cache_file_name
+        self.cache_file = cache_file
         if os.path.exists(self.cache_file):
             self.cache_rows = list(jsonlines.open(self.cache_file))
         else:
@@ -109,7 +113,7 @@ class GPT3Oracle:
 
         self.gpt3_pairwise_labels = {}
         for row in self.cache_rows:
-            sorted_pair_list = sorted([row["entity1"], row["entity2"]])
+            sorted_pair_list = sorted([row["context1"], row["context1"]])
             self.gpt3_pairwise_labels[tuple(sorted_pair_list)] = row["labels"]
 
         self.prompt = prompt
@@ -130,17 +134,27 @@ class GPT3Oracle:
     def query(self, i, j):
         if self.queries_cnt < self.max_queries_cnt:
             self.queries_cnt += 1
-            sorted_pair_list = sorted([self.ents[i], self.ents[j]])
+            try:
+                sorted_pair_list = sorted([self.documents[i], self.documents[j]])
+            except:
+                breakpoint()
+
             sorted_pair = tuple(sorted_pair_list)
+
+            # remove
+            sorted_entity_pair = (sorted_pair[0].split("\n")[0], sorted_pair[1].split("\n")[0])
+            sorted_entity_pair = tuple(sorted(list(sorted_entity_pair)))
+
 
             if  sorted_pair in self.gpt3_pairwise_labels:
                 return self.filter_high_entropy_predictions(self.gpt3_pairwise_labels[sorted_pair])
 
 
-            prompt = self.prompt
-            prompt_to_be_completed = prompt + 
-
-            prompt, context1, context2 = self.construct_pairwise_oracle_prompt(i, j)
+            prompt_prefix = self.prompt
+            context1 = self.documents[i]
+            context2 = self.documents[j]
+            prompt_to_be_completed = construct_pairwise_oracle_single_example(self.documents[i], self.documents[j], label=None, add_label=False, dataset_name=self.dataset_name, prompt_suffix=self.prompt_suffix, text_type=self.text_type)
+            prompt = prompt_prefix + "\n\n" + prompt_to_be_completed
             print("PROMPT:\n" + prompt)
 
 
@@ -152,6 +166,7 @@ class GPT3Oracle:
                 cache_row = None
                 try:
                     start = time.perf_counter()
+                    breakpoint()
                     response = call_chatgpt(prompt, self.num_predictions, temperature=1.0, max_tokens=1, timeout=2.0)
                     print(f"response took {round(time.perf_counter()-start, 2)} seconds")
 
@@ -171,8 +186,7 @@ class GPT3Oracle:
                     if len(pair_labels_not_none) <= self.num_predictions / 2:
                         time.sleep(0.2)
                     else:
-                        cache_row = {"entity1": self.ents[i],
-                                     "entity2": self.ents[j],
+                        cache_row = {
                                      "labels": pair_labels_not_none,
                                      "p_true": round(sum(pair_labels_not_none) / len(pair_labels_not_none), 4),
                                      "context1": context1,
