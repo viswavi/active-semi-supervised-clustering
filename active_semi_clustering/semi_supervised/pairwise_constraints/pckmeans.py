@@ -37,7 +37,7 @@ class PCKMeans(KMeans):
         # Initialize centroids
         start = time.perf_counter()
         cluster_centers = self._init_cluster_centers(X)
-        #cluster_centers = self._initialize_cluster_centers(X, neighborhoods)
+        # cluster_centers = self._initialize_cluster_centers(X, neighborhoods)
         elapsed = time.perf_counter() - start
         print(f"Initializing neighborhoods took {round(elapsed, 4)} seconds")
 

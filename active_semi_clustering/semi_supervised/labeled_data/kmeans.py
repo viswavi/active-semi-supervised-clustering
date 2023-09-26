@@ -17,7 +17,7 @@ import time
 
 
 class KMeans:
-    def __init__(self, n_clusters=3, max_iter=100, num_reinit=1, normalize_vectors=False, split_normalization=False, init="random", verbose=False):
+    def __init__(self, n_clusters=3, max_iter=100, num_reinit=1, normalize_vectors=False, split_normalization=False, init="random", split_point=300, verbose=False):
         self.n_clusters = n_clusters
         self.max_iter = max_iter
         self.normalize_vectors = normalize_vectors
@@ -26,6 +26,7 @@ class KMeans:
         self.init = init
         self.verbose = verbose
         self.num_reinit = num_reinit
+        self.split_point = split_point
 
     def fit(self, X, y=None, **kwargs):
         # Initialize cluster centers
@@ -51,8 +52,8 @@ class KMeans:
                 timer = time.perf_counter()
                 if self.normalize_vectors:
                     if self.split_normalization:
-                        kg_centers = normalize(cluster_centers[:, :300], axis=1, norm="l2")
-                        bert_centers = normalize(cluster_centers[:, 300:], axis=1, norm="l2")
+                        kg_centers = normalize(cluster_centers[:, :self.split_point], axis=1, norm="l2")
+                        bert_centers = normalize(cluster_centers[:, self.split_point:], axis=1, norm="l2")
                         cluster_centers = np.hstack([kg_centers, bert_centers])
                     else:
                         cluster_centers = normalize(cluster_centers, axis=1, norm="l2")
