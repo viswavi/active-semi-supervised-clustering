@@ -24,13 +24,18 @@ from cmvc.metrics import pairwiseMetric, calcF1
 from cmvc.test_performance import cluster_test
 
 class GPTExpansionClustering(KMeans):
-    def __init__(self, X, labels, documents, dataset_name=None, prompt=None, text_type=None, keep_original_entity=True, split=None, n_clusters=3, side_information=None, read_only=False, instruction_only=False, demonstration_only=False, cache_file_name="gpt_paraphrase_cache.jsonl"):
+    def __init__(self, X, documents, encoder_model=None, dataset_name=None, prompt=None, text_type=None, prompt_for_encoder=None, keep_original_entity=True, split=None, n_clusters=3, side_information=None, read_only=False, instruction_only=False, demonstration_only=False, cache_file_name="gpt_paraphrase_cache.jsonl"):
         self.X = X
         self.dataset_name = dataset_name
-        self.labels = labels
         self.documents = documents
+        self.encoder_model = encoder_model
+        # If a dataset is specified, then we'll automatically infer the correct encoder model to use.
+        # Otherwise, a model object must be provided.
+        if self.dataset_name is None:
+            assert self.encoder_model is not None, "Provide an encoder model to use for keyphrase clustering"
         self.prompt = prompt
         self.text_type = text_type
+        self.prompt_for_encoder = prompt_for_encoder
         self.keep_original_entity = keep_original_entity
         self.n_clusters = n_clusters
         self.side_information = side_information
@@ -64,23 +69,11 @@ class GPTExpansionClustering(KMeans):
             processed_sentence_set.append(s.replace("-LRB-", "(").replace("-RRB-", ")"))
         return processed_sentence_set
 
-    @staticmethod
-    def construct_context_sentences(entity_idx, selected_sentences):
-        context_labels = ["1", "2", "3", "4"]
-        return "\n".join([context_labels[ind] + ") " + '"' + sent + '"' for ind, sent in enumerate(selected_sentences[entity_idx])])
-
     def create_template_block(self, entity_idx, text_type):
         filled_template = f"""{text_type}: "{self.documents[entity_idx]}"
 
 Keyphrases:"""
         return filled_template
-
-    def expand_entity(self, entity_name):
-        entity_idx = self.side_information.side_info.ent2id[entity_name]
-        gt_cluster = self.labels[entity_idx]
-        gt_coclustered_entity_idxs = [i for i, l in enumerate(self.labels) if l == gt_cluster and i != entity_idx]
-        entity_expansions = [self.side_information.side_info.id2ent[entity_idx] for entity_idx in gt_coclustered_entity_idxs]
-        return entity_expansions
 
     def construct_gpt3_template(self, doc_idx, instruction_only=False, demonstration_only=False):
         if self.dataset_name is not None:
@@ -101,7 +94,7 @@ Keyphrases:"""
         completion_block = self.create_template_block(doc_idx, text_type)
         return f"{prompt_prefix}\n\n{completion_block}"
 
-    def fit(self, X, y=None, ml=[], cl=[]):
+    def fit(self, X):
         document_expansion_mapping = {}
         for row in self.cache_rows:
             document_expansion_mapping[row["entity"]] = row["expansion"]
@@ -150,67 +143,6 @@ Keyphrases:"""
         if not self.read_only:
             self.cache_writer.close()
 
-
-
-        doc_expansions_lowercase = {}
-        all_keywords = set()
-        for doc, expansions in document_expansion_mapping.items():
-            doc_lowercase = doc.lower()
-            try:
-                expanded_lowercase = [r.lower() for r in expansions]
-            except:
-                breakpoint()
-            doc_expansions_lowercase[doc] = set(expanded_lowercase)
-            if self.keep_original_entity:
-                doc_expansions_lowercase[doc].add(doc_lowercase)
-            all_keywords.update(doc_expansions_lowercase[doc])
-
-        for doc in self.documents:
-            if self.keep_original_entity and doc not in doc_expansions_lowercase:
-                doc_expansions_lowercase[doc] = set([doc.lower()])
-
-        docs_sorted = sorted(self.documents, key=lambda e: len(doc_expansions_lowercase[e]), reverse=True)
-
-        clusters = [[docs_sorted[0]]]
-        cluster_keywords = [set(doc_expansions_lowercase[docs_sorted[0]])]
-        for doc in docs_sorted[1:]:
-            any_cluster_match = None
-            for clust_idx, cluster in enumerate(clusters):
-                cluster_match = False
-                for candidate_doc in cluster:
-                    if len(doc_expansions_lowercase[doc].union(doc_expansions_lowercase[candidate_doc])) == 0:
-                        breakpoint()
-                    jaccard_similarity = len(doc_expansions_lowercase[doc].intersection(doc_expansions_lowercase[candidate_doc])) / len(doc_expansions_lowercase[doc].union(doc_expansions_lowercase[candidate_doc]))
-                    if jaccard_similarity > 0:
-                        cluster_match = True
-                        break
-                if cluster_match:
-                    any_cluster_match = clust_idx
-                    break
-            if any_cluster_match is not None:
-                clusters[any_cluster_match].append(doc)
-                cluster_keywords[any_cluster_match].update(doc_expansions_lowercase[doc])
-            else:
-                clusters.append([doc])
-                cluster_keywords.append(set(doc_expansions_lowercase[doc]))
-
-        clusters_and_keywords = []
-        for (single_cluster_docs, single_cluster_keywords) in zip(clusters, cluster_keywords):
-            clusters_and_keywords.append((list(single_cluster_docs), list(single_cluster_keywords)))
-
-        clusters_and_keywords = sorted(clusters_and_keywords, key=lambda k: len(k[0]))
-
-        # compute labels
-        doc_to_cluster_idx = {}
-        for clust_idx, cluster in enumerate(clusters):
-            for doc in cluster:
-                doc_to_cluster_idx[doc] = clust_idx
-        if isinstance(self.side_information, list):
-            self.labels_ = [doc_to_cluster_idx[self.side_information[idx]] for idx in range(len(X))]
-        else:
-            self.labels_ = [doc_to_cluster_idx[self.side_information.side_info.id2ent[idx]] for idx in range(len(X))]
-
-
         all_expansions = []
         for doc in self.documents:
             if self.dataset_name == "OPIEC59k" or self.dataset_name == "reverb45k":
@@ -233,7 +165,11 @@ Keyphrases:"""
             prompt = "Represent keyphrases for topic classification: "
             expansion_embeddings = model.encode([[prompt, text] for text in all_expansions])
         else:
-            raise ValueError(f"Dataset {self.dataset_name} not found")
+            assert self.dataset_name is None, f"Dataset {self.dataset_name} not found"
+            if self.prompt_for_encoder is None:
+                expansion_embeddings = self.encoder_model.encode(all_expansions)
+            else:
+                expansion_embeddings = model.encode([[self.prompt_for_encoder, text] for text in all_expansions])
 
         a_vectors = normalize(self.X, axis=1, norm="l2")
         b_vectors = normalize(expansion_embeddings, axis=1, norm="l2")

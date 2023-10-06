@@ -53,15 +53,15 @@ def call_chatgpt(prompt, num_predictions, temperature=1.0, max_tokens=1, timeout
 def construct_pairwise_oracle_single_example(document_i, document_j, label, dataset_name, prompt_suffix = None, text_type = None, add_label=True):
     if prompt_suffix is None:
         if dataset_name == "OPIEC59k":
-            prompt_suffix = "link to the same entity's article on Wikipedia? "
+            prompt_suffix = "link to the same entity's article on Wikipedia?"
         elif dataset_name == "reverb45k":
-            prompt_suffix = "link to the same entity on a knowledge graph like Freebase? "
+            prompt_suffix = "link to the same entity on a knowledge graph like Freebase?"
         elif dataset_name == "tweet":
-            prompt_suffix = "discuss the same topic? "
+            prompt_suffix = "discuss the same topic?"
         elif dataset_name == "clinc":
-            prompt_suffix = "express the same general intent? "
+            prompt_suffix = "express the same general intent?"
         elif dataset_name == "bank77":
-            prompt_suffix = "express the same general intent? "
+            prompt_suffix = "express the same general intent?"
         else:
             raise ValueError(f"Dataset {dataset_name} not supported. Set a prompt_suffix")
 
@@ -80,7 +80,7 @@ def construct_pairwise_oracle_single_example(document_i, document_j, label, data
     template_prefix = f"""{text_type} #1: {document_i}
 {text_type} #2: {document_j}
 
-Given this context, do {text_type.lower()} #1 and {text_type.lower()} #2 likely {prompt_suffix}"""
+Given this context, do {text_type.lower()} #1 and {text_type.lower()} #2 likely {prompt_suffix} """
 
     if add_label:
         full_example = template_prefix + label
