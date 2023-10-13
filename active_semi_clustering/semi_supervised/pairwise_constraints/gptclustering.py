@@ -39,8 +39,7 @@ class GPTExpansionClustering(KMeans):
         self.keep_original_entity = keep_original_entity
         self.n_clusters = n_clusters
         self.side_information = side_information
-        self.cache_dir = "/projects/ogma2/users/vijayv/extra_storage/okb-canonicalization/clustering/file/gpt3_cache"
-        cache_file = os.path.join(self.cache_dir, cache_file_name)
+        cache_file = cache_file_name
         self.instruction_only = instruction_only
         self.demonstration_only = demonstration_only
         if instruction_only:
@@ -61,7 +60,6 @@ class GPTExpansionClustering(KMeans):
         self.read_only = read_only
 
         split_str = f"_{split}" if split else ""
-        self.sentence_unprocessing_mapping_file = os.path.join(self.cache_dir, f"{dataset_name}{split_str}_sentence_unprocessing_map.json")
 
     def process_sentence_punctuation(self, sentences):
         processed_sentence_set = []
@@ -105,8 +103,6 @@ Keyphrases:"""
                     continue
                 template_to_fill = self.construct_gpt3_template(doc_idx, instruction_only=self.instruction_only, demonstration_only=self.demonstration_only)
                 print(f"PROMPT:\n{template_to_fill}")
-
-                breakpoint()
 
                 failure = True
                 num_retries = 0
@@ -169,7 +165,7 @@ Keyphrases:"""
             if self.prompt_for_encoder is None:
                 expansion_embeddings = self.encoder_model.encode(all_expansions)
             else:
-                expansion_embeddings = model.encode([[self.prompt_for_encoder, text] for text in all_expansions])
+                expansion_embeddings = self.encoder_model.encode([[self.prompt_for_encoder, text] for text in all_expansions])
 
         a_vectors = normalize(self.X, axis=1, norm="l2")
         b_vectors = normalize(expansion_embeddings, axis=1, norm="l2")

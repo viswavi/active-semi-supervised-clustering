@@ -69,7 +69,7 @@ class PCKMeans(KMeans):
             elapsed = time.perf_counter() - start
             print(f"elapsed time: {round(elapsed, 3)}")
 
-            if not isinstance(self.side_information, list) and iteration % 10 == 0:
+            if self.side_information is not None and not isinstance(self.side_information, list) and iteration % 10 == 0:
                 ave_prec, ave_recall, ave_f1, macro_prec, micro_prec, pair_prec, macro_recall, micro_recall, pair_recall, macro_f1, micro_f1, pairwise_f1, model_clusters, model_Singletons, gold_clusters, gold_Singletons  = cluster_test(self.side_information.p, self.side_information.side_info, labels, self.side_information.true_ent2clust, self.side_information.true_clust2ent)
                 metric_dict = {"macro_f1": macro_f1, "micro_f1": micro_f1, "pairwise_f1": pairwise_f1, "ave_f1": ave_f1}
                 print(f"metric_dict at iteration {iteration}:\t{metric_dict}")

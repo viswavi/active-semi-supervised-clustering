@@ -166,7 +166,6 @@ class GPT3Oracle:
                 cache_row = None
                 try:
                     start = time.perf_counter()
-                    breakpoint()
                     response = call_chatgpt(prompt, self.num_predictions, temperature=1.0, max_tokens=1, timeout=2.0)
                     print(f"response took {round(time.perf_counter()-start, 2)} seconds")
 
