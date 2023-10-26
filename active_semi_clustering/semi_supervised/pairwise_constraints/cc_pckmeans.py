@@ -6,8 +6,7 @@ import time
 from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.semi_supervised.pairwise_constraints.pckmeans import PCKMeans
 
 import sys
-sys.path.append("cmvc")
-from cmvc.test_performance import cluster_test
+from few_shot_clustering.cmvc.test_performance import cluster_test
 
 class CardinalityConstrainedPCKMeans(PCKMeans):
     def _objective_function(self, X, x_i, centroids, c_i, labels, ml_graph, cl_graph, w, max_pairwise_distance=1.0, print_terms=False):

@@ -11,8 +11,7 @@ from .constraints import preprocess_constraints, preprocess_constraints_no_trans
 from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.semi_supervised.labeled_data.kmeans import KMeans
 
 import sys
-sys.path.append("cmvc")
-from cmvc.test_performance import cluster_test
+from few_shot_clustering.cmvc.test_performance import cluster_test
 
 class PCKMeans(KMeans):
     def __init__(self, n_clusters=3, max_iter=100, w=0.25, init="random", normalize_vectors=False, split_normalization=False, side_information=None):

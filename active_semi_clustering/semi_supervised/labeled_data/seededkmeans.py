@@ -6,7 +6,7 @@ import sys
 
 from .kmeans import KMeans
 
-from cmvc.Multi_view_CH_kmeans import init_seeded_kmeans_plusplus
+from few_shot_clustering.cmvc.Multi_view_CH_kmeans import init_seeded_kmeans_plusplus
 
 
 class SeededKMeans(KMeans):

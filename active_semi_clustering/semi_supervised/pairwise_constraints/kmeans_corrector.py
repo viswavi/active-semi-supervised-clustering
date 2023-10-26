@@ -172,27 +172,8 @@ class KMeansCorrection:
 
         self.labels_ = corrected_labels
 
-        breakpoint()
-
         print(f"Num oracle queries: {num_queries}")
         print(f"Num Corrections: {num_corrections_made}")
         print(f"Num Correct Corrections: {num_correct_corrections_made}")
 
-        '''
-        from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.active.pairwise_constraints import ExampleOracle
-        oracle = ExampleOracle(labels, max_queries_cnt=100000)
-
-        from dataloaders import load_dataset, generate_synthetic_data
-        import sys
-        sys.path.append("cmvc")
-        from cmvc.helper import invertDic
-        from cmvc.metrics import pairwiseMetric, calcF1
-        from cmvc.test_performance import cluster_test
-        X, labels, side_information = load_dataset("OPIEC59k", "/projects/ogma1/vijayv/okb-canonicalization/clustering/data", "test")
-
-        current_metrics = cluster_test(side_information.p, side_information.side_info, self.cluster_predictions, side_information.true_ent2clust, side_information.true_clust2ent)
-        new_metrics = cluster_test(side_information.p, side_information.side_info, corrected_labels, side_information.true_ent2clust, side_information.true_clust2ent)
-
-        ave_prec, ave_recall, ave_f1, macro_prec, micro_prec, pair_prec, macro_recall, micro_recall, pair_recall, macro_f1, micro_f1, pairwise_f1, model_clusters, model_Singletons, gold_clusters, gold_Singletons  = cluster_test(side_information.p, side_information.side_info, self.cluster_predictions, side_information.true_ent2clust, side_information.true_clust2ent)    
-        '''
         return self

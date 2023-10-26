@@ -17,11 +17,9 @@ from few_shot_clustering.active_semi_supervised_clustering.active_semi_clusterin
 from InstructorEmbedding import INSTRUCTOR
 from sentence_transformers import SentenceTransformer
 
-import sys
-sys.path.append("cmvc")
-from cmvc.helper import invertDic
-from cmvc.metrics import pairwiseMetric, calcF1
-from cmvc.test_performance import cluster_test
+from few_shot_clustering.cmvc.helper import invertDic
+from few_shot_clustering.cmvc.metrics import pairwiseMetric, calcF1
+from few_shot_clustering.cmvc.test_performance import cluster_test
 
 class GPTExpansionClustering(KMeans):
     def __init__(self, X, documents, encoder_model=None, dataset_name=None, prompt=None, text_type=None, prompt_for_encoder=None, keep_original_entity=True, split=None, n_clusters=3, side_information=None, read_only=False, instruction_only=False, demonstration_only=False, cache_file_name="gpt_paraphrase_cache.jsonl"):

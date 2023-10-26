@@ -11,7 +11,7 @@ from sklearn.utils import check_random_state
 from sklearn.utils.extmath import row_norms
 from tqdm import tqdm
 
-from cmvc.Multi_view_CH_kmeans import init_seeded_kmeans_plusplus
+from few_shot_clustering.cmvc.Multi_view_CH_kmeans import init_seeded_kmeans_plusplus
 
 import time
 
