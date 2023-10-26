@@ -1,8 +1,8 @@
 import numpy as np
 import scipy
 
-from active_semi_clustering.exceptions import EmptyClustersException
-from active_semi_clustering.farthest_first_traversal import weighted_farthest_first_traversal
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.exceptions import EmptyClustersException
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.farthest_first_traversal import weighted_farthest_first_traversal
 from .constraints import preprocess_constraints
 
 

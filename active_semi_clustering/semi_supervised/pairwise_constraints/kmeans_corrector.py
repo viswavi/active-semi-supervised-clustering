@@ -5,8 +5,8 @@ from sklearn.metrics.pairwise import euclidean_distances
 from sklearn.preprocessing import normalize
 from tqdm import tqdm
 
-from active_semi_clustering.active.pairwise_constraints import ExampleOracle
-from active_semi_clustering.active.pairwise_constraints.example_oracle import MaximumQueriesExceeded
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.active.pairwise_constraints import ExampleOracle
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.active.pairwise_constraints.example_oracle import MaximumQueriesExceeded
 
 class KMeansCorrection:
     def __init__(self, oracle, cluster_predictions, cluster_centers, labels):
@@ -179,7 +179,7 @@ class KMeansCorrection:
         print(f"Num Correct Corrections: {num_correct_corrections_made}")
 
         '''
-        from active_semi_clustering.active.pairwise_constraints import ExampleOracle
+        from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.active.pairwise_constraints import ExampleOracle
         oracle = ExampleOracle(labels, max_queries_cnt=100000)
 
         from dataloaders import load_dataset, generate_synthetic_data

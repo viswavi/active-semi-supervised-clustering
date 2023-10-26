@@ -1,6 +1,6 @@
 import numpy as np
 
-from active_semi_clustering.exceptions import EmptyClustersException, ClusteringNotFoundException
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.exceptions import EmptyClustersException, ClusteringNotFoundException
 from .constraints import preprocess_constraints
 
 

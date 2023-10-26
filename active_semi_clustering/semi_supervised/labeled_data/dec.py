@@ -1,6 +1,6 @@
 
-from active_semi_clustering.exceptions import EmptyClustersException
-from active_semi_clustering.semi_supervised.labeled_data.kmeans import KMeans
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.exceptions import EmptyClustersException
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.semi_supervised.labeled_data.kmeans import KMeans
 
 from collections import namedtuple
 import numpy as np

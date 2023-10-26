@@ -29,8 +29,8 @@ pip install active-semi-supervised-clustering
 
 ```python
 from sklearn import datasets, metrics
-from active_semi_clustering.semi_supervised.pairwise_constraints import PCKMeans
-from active_semi_clustering.active.pairwise_constraints import ExampleOracle, ExploreConsolidate, MinMax
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.semi_supervised.pairwise_constraints import PCKMeans
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.active.pairwise_constraints import ExampleOracle, ExploreConsolidate, MinMax
 ```
 
 ```python

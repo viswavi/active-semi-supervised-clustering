@@ -1,6 +1,6 @@
 from tqdm import tqdm
 
-from active_semi_clustering.exceptions import InconsistentConstraintsException
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.exceptions import InconsistentConstraintsException
 
 # Taken from https://github.com/Behrouz-Babaki/COP-Kmeans/blob/master/copkmeans/cop_kmeans.py
 def preprocess_constraints(ml, cl, n):

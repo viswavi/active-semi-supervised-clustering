@@ -6,9 +6,9 @@ from sklearn.preprocessing import normalize
 from sklearn.metrics.pairwise import euclidean_distances
 import time
 
-from active_semi_clustering.exceptions import EmptyClustersException
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.exceptions import EmptyClustersException
 from .constraints import preprocess_constraints, preprocess_constraints_no_transitive_closure
-from active_semi_clustering.semi_supervised.labeled_data.kmeans import KMeans
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.semi_supervised.labeled_data.kmeans import KMeans
 
 import sys
 sys.path.append("cmvc")

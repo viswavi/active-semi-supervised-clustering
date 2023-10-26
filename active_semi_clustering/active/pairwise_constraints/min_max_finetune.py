@@ -2,7 +2,7 @@ import numpy as np
 
 from .example_oracle import MaximumQueriesExceeded
 from .explore_consolidate import ExploreConsolidate
-from active_semi_clustering.semi_supervised.labeled_data.kmeans import KMeans
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.semi_supervised.labeled_data.kmeans import KMeans
 
 class MinMaxFinetune(ExploreConsolidate):
     def set_initial_clusterer(self, initial_clusterer):

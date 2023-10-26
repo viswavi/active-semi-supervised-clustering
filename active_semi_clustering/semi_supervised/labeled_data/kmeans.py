@@ -1,5 +1,5 @@
 
-from active_semi_clustering.exceptions import EmptyClustersException
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.exceptions import EmptyClustersException
 import math
 import numpy as np
 from ortools.linear_solver import pywraplp

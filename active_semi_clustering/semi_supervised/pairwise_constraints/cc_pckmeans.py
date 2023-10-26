@@ -3,7 +3,7 @@ import numpy as np
 from ortools.linear_solver import pywraplp
 import time
 
-from active_semi_clustering.semi_supervised.pairwise_constraints.pckmeans import PCKMeans
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.semi_supervised.pairwise_constraints.pckmeans import PCKMeans
 
 import sys
 sys.path.append("cmvc")

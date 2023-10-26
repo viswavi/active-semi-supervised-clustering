@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 
 from .example_oracle import MaximumQueriesExceeded
-from active_semi_clustering.exceptions import EmptyClustersException
+from few_shot_clustering.active_semi_supervised_clustering.active_semi_clustering.exceptions import EmptyClustersException
 
 
 class NPU:
