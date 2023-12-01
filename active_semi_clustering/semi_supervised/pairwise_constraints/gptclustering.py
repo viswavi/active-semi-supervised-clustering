@@ -99,12 +99,6 @@ Keyphrases:"""
 
         for doc_idx, document in tqdm(enumerate(self.documents)):
             if document not in document_expansion_mapping:
-                assert document.split("\n")[0] in document_expansion_mapping
-                doc_name = document.split("\n")[0]
-                entity_expansions = document_expansion_mapping[doc_name]
-                cache_row = {"entity": doc_name, "expansion": entity_expansions}
-                self.cache_writer.write(cache_row)
-            elif document not in document_expansion_mapping:
                 if self.read_only:
                     continue
                 template_to_fill = self.construct_gpt3_template(doc_idx, instruction_only=self.instruction_only, demonstration_only=self.demonstration_only)
