@@ -4,6 +4,7 @@ import jsonlines
 import numpy as np
 import openai
 import os
+from sklearn.cluster import AgglomerativeClustering
 from sklearn.preprocessing import normalize
 import time
 from tqdm import tqdm
@@ -22,10 +23,11 @@ from few_shot_clustering.cmvc.metrics import pairwiseMetric, calcF1
 from few_shot_clustering.cmvc.test_performance import cluster_test
 
 class GPTExpansionClustering(KMeans):
-    def __init__(self, X, documents, encoder_model=None, dataset_name=None, prompt=None, text_type=None, prompt_for_encoder=None, keep_original_entity=True, split=None, n_clusters=3, side_information=None, read_only=False, instruction_only=False, demonstration_only=False, cache_file_name="gpt_paraphrase_cache.jsonl"):
+    def __init__(self, X, documents, algorithm="KMeans", encoder_model=None, dataset_name=None, prompt=None, text_type=None, prompt_for_encoder=None, keep_original_entity=True, split=None, n_clusters=3, side_information=None, read_only=False, instruction_only=False, demonstration_only=False, cache_file_name="gpt_paraphrase_cache.jsonl"):
         self.X = X
         self.dataset_name = dataset_name
         self.documents = documents
+        self.algorithm = algorithm
         self.encoder_model = encoder_model
         # If a dataset is specified, then we'll automatically infer the correct encoder model to use.
         # Otherwise, a model object must be provided.
@@ -97,6 +99,12 @@ Keyphrases:"""
 
         for doc_idx, document in tqdm(enumerate(self.documents)):
             if document not in document_expansion_mapping:
+                assert document.split("\n")[0] in document_expansion_mapping
+                doc_name = document.split("\n")[0]
+                entity_expansions = document_expansion_mapping[doc_name]
+                cache_row = {"entity": doc_name, "expansion": entity_expansions}
+                self.cache_writer.write(cache_row)
+            elif document not in document_expansion_mapping:
                 if self.read_only:
                     continue
                 template_to_fill = self.construct_gpt3_template(doc_idx, instruction_only=self.instruction_only, demonstration_only=self.demonstration_only)
@@ -108,12 +116,15 @@ Keyphrases:"""
                     cache_row = None
                     try:
                         start = time.perf_counter()
+
+                        deployment_name="GPT-3-5-turbo-chat"
                         response = openai.ChatCompletion.create(
                             model="gpt-3.5-turbo",
                             messages=[
                                 {"role": "user", "content": template_to_fill},
                             ],
                         )
+
                         message = json.loads(str(response.choices[0]))["message"]["content"]
                         if message.startswith("Keywords:"):
                             message = message[len("Keywords:"):].strip()
@@ -169,7 +180,12 @@ Keyphrases:"""
         b_vectors = normalize(expansion_embeddings, axis=1, norm="l2")
         embeddings = np.concatenate([a_vectors, b_vectors], axis=1)
 
-        kmeans = KMeans(self.n_clusters, max_iter=100, init="k-means++", normalize_vectors=True, split_normalization=True, split_point=np.shape(self.X)[1])
-        kmeans.fit(embeddings)
-        self.labels_ = [int(l) for l in kmeans.labels_]
+        if self.algorithm == "KMeans":
+            clusterer = KMeans(self.n_clusters, max_iter=100, init="k-means++", normalize_vectors=True, split_normalization=True, split_point=np.shape(self.X)[1])
+        elif self.algorithm == "AgglomerativeClustering":
+            clusterer = AgglomerativeClustering(n_clusters=self.n_clusters, linkage="complete")
+        else:
+            raise NotImplementedError(f"Clustering algorithm {self.algorithm} not implemented")
+        clusterer.fit(embeddings)
+        self.labels_ = [int(l) for l in clusterer.labels_]
         return self
